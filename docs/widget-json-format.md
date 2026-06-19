@@ -17,8 +17,7 @@ This document describes the JSON format used by the Cosplay America calendar wid
 
 ## Version Information
 
-- **Format Version**: 0
-- **Variant**: display
+- **Format Version**: 1
 - **Purpose**: Widget consumption and public schedule display
 - **Generator**: cosam-convert or cosam-editor
 
@@ -29,8 +28,7 @@ Metadata describing the schedule file.
 | Field     | Type    | Description                                                              |
 | --------- | ------- | ------------------------------------------------------------------------ |
 | title     | String  | Schedule title (e.g., "Event Schedule 2026")                             |
-| version   | Integer | Format version (0 during development, will increment on first release)   |
-| variant   | String  | Format variant: "display"                                                |
+| version   | Integer | Widget JSON format version (currently `1`); consumers branch on this     |
 | generator | String  | Generator software and version                                           |
 | generated | String  | ISO 8601 timestamp when file was generated                               |
 | modified  | String  | Excel last modified timestamp                                            |
@@ -48,8 +46,7 @@ times) are wall-clock values in `timezone`. The widget uses `timezone` +
 ```json
 {
   "title": "Event Schedule 2026",
-  "version": 0,
-  "variant": "display",
+  "version": 1,
   "generator": "cosam-convert 0.1.0",
   "generated": "2026-03-26T22:00:00Z",
   "modified": "2026-03-26T21:45:00Z",
@@ -169,6 +166,7 @@ panel or timeline entry are included in the export.
 
 | Field         | Type    | Description                                                   |
 | ------------- | ------- | ------------------------------------------------------------- |
+| `prefix`      | string  | Type prefix, identical to this entry's key in `panelTypes` (carried inline so list-oriented consumers need not reconstruct identity from the map key) |
 | `kind`        | string  | Human-readable category name                                  |
 | `colors`      | object  | Named color sets (see Color Sets below)                       |
 | `isBreak`     | boolean | True for break-type panels                                    |
@@ -213,6 +211,7 @@ For widget styling, the CSS class is derived from the prefix: `cosam-panel-type-
 ```json
 {
   "GP": {
+    "prefix": "GP",
     "kind": "Guest Panel",
     "colors": { "color": "#E2F9D7", "bw": "#CCCCCC" },
     "isBreak": false,
@@ -224,6 +223,7 @@ For widget styling, the CSS class is derived from the prefix: `cosam-panel-type-
     "isPrivate": false
   },
   "GW": {
+    "prefix": "GW",
     "kind": "Guest Workshop",
     "colors": { "color": "#FDEEB5", "bw": "#E0E0E0" },
     "isBreak": false,
@@ -235,6 +235,7 @@ For widget styling, the CSS class is derived from the prefix: `cosam-panel-type-
     "isPrivate": false
   },
   "%IB": {
+    "prefix": "%IB",
     "kind": "Implicit Break",
     "colors": { "color": "#F5F5F5" },
     "isBreak": true,
@@ -308,7 +309,7 @@ by room membership.
 | ------------- | -------------- | ------------------------------------------------------------ |
 | `id`          | string         | Unique identifier for the time marker                        |
 | `startTime`   | string         | ISO 8601 local datetime (no timezone suffix, same as panels) |
-| `description` | string         | Description of the time marker                               |
+| `name`        | string         | Display label of the time marker (was `description` before format version 1; readers should accept the old key) |
 | `panelType`   | string \| null | Panel type prefix, references panelTypes hash key            |
 | `note`        | string \| null | Additional notes for the marker                              |
 
@@ -333,14 +334,14 @@ When converting from spreadsheet, this array is populated with panels whose pane
   {
     "id": "SPLIT01",
     "startTime": "2026-06-26T17:00:00",
-    "description": "Thursday Evening",
+    "name": "Thursday Evening",
     "panelType": "SPLIT",
     "note": "Example note"
   },
   {
     "id": "SPLIT02",
     "startTime": "2026-06-27T08:00:00",
-    "description": "Friday Morning",
+    "name": "Friday Morning",
     "panelType": "SPLIT",
     "note": null
   }
@@ -421,8 +422,7 @@ The widget performs the following transformations on the raw JSON:
 {
   "meta": {
     "title": "Event Schedule 2026",
-    "version": 0,
-    "variant": "display",
+    "version": 1,
     "generator": "cosam-convert 0.1.0",
     "generated": "2026-03-26T22:00:00Z",
     "modified": "2026-03-26T21:45:00Z",
@@ -471,7 +471,7 @@ The widget performs the following transformations on the raw JSON:
     {
       "id": "SPLIT01",
       "startTime": "2026-06-26T17:00:00",
-      "description": "Thursday Evening",
+      "name": "Thursday Evening",
       "panelType": "SPLIT",
       "note": "Example note"
     }

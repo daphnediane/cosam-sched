@@ -15,8 +15,8 @@ mod types;
 
 // Re-export public types
 pub use types::{
-    WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelType, WidgetPresenter, WidgetRoom,
-    WidgetTimeline,
+    WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter,
+    WidgetRoom, WidgetTimeline,
 };
 
 // Re-export public functions from export module

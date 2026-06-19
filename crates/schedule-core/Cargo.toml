@@ -8,6 +8,7 @@ description = "Entity/field system and core schedule data model for cosam-sched"
 
 [dependencies]
 schedule-macro = { path = "../schedule-macro" }
+schedule-widget-format = { path = "../schedule-widget-format" }
 automerge = "0.9"
 uuid = { version = "1.13", features = ["v4", "v5", "v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }

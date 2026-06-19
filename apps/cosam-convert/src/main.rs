@@ -1139,7 +1139,7 @@ fn run_layout_export(
     settings: &OutputSettings,
 ) {
     use schedule_layout::{
-        brand::BrandConfig, config::LayoutConfig, document, model::ScheduleData,
+        brand::BrandConfig, config::LayoutConfig, document, from_schedule, model::ScheduleData,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1165,7 +1165,7 @@ fn run_layout_export(
     // whichever panel set is visible, so the public and private views are each
     // internally consistent (the public view is byte-identical to before).
     let build_data = |private: bool| -> Option<ScheduleData> {
-        match ScheduleData::from_schedule(schedule, title, private) {
+        match from_schedule(schedule, title, private) {
             Ok(mut d) => {
                 // For reproducible test output, pin the generated time to the
                 // (stable) modified time so the footer no longer varies per run.
@@ -1241,11 +1241,12 @@ fn run_layout_export(
     };
 
     // Schedule date range for resolving loose/recurring time expressions.
-    let sched_range: Option<(&str, &str)> = data
-        .meta
-        .start_time
-        .as_deref()
-        .zip(data.meta.end_time.as_deref());
+    // The widget format uses "" for an absent naive datetime; treat that as None.
+    let sched_range: Option<(&str, &str)> = {
+        let start = data.meta.start_time.as_str();
+        let end = data.meta.end_time.as_str();
+        (!start.is_empty() && !end.is_empty()).then_some((start, end))
+    };
 
     // Determine which jobs to run:
     // - A command-line layout (`--layout.*`) renders a single job; the export

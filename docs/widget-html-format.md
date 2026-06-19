@@ -60,22 +60,22 @@ block-level element.
 ### Schema
 
 The JSON object has the same schema as the widget JSON display format (see
-`widget-json-format.md`), with two differences:
+`widget-json-format.md`), with one difference:
 
 - The `panels` field is **absent** — panels are encoded as HTML elements instead.
-- `meta.variant` is `"html-embedded"` instead of `"display"`.
 
 ```json
 {
   "meta": {
     "title": "Event Schedule 2026",
-    "version": 0,
-    "variant": "html-embedded",
+    "version": 1,
     "generator": "cosam-convert 0.1.0",
     "generated": "2026-03-26T22:00:00Z",
     "modified": "2026-03-26T21:45:00Z",
     "startTime": "2026-05-29T17:00:00",
-    "endTime": "2026-06-01T15:00:00"
+    "endTime": "2026-06-01T15:00:00",
+    "timezone": "America/New_York",
+    "vtimezone": "BEGIN:VTIMEZONE\r\nTZID:America/New_York\r\n...END:VTIMEZONE"
   },
   "rooms": [ … ],
   "panelTypes": { … },
@@ -244,7 +244,7 @@ The widget-html format is produced by `cosam-convert` using the `--export-embed`
 
 The generator:
 
-1. Serializes the JSON block with `meta.variant = "html-embedded"` and no `panels` field.
+1. Serializes the JSON block with no `panels` field.
 2. Iterates `export.panels` sorted by `startTime`.
 3. For each panel, writes an `<article class="cosam-panel">` with all required `data-*`
    attributes and child elements.

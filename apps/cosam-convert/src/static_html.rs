@@ -11,8 +11,7 @@
 //! **outside** `#cosam-calendar-root` so they survive the widget's initial
 //! render (which clears `rootEl.innerHTML`):
 //! - A compact `<script id="cosam-schedule-data" data-cosam="schedule">` block
-//!   carrying structural data (meta, rooms, panelTypes, timeline, presenters)
-//!   with `meta.variant` set to `"html-embedded"`.
+//!   carrying structural data (meta, rooms, panelTypes, timeline, presenters).
 //! - A `<section class="cosam-static-schedule">` containing one
 //!   `<article class="cosam-panel">` per panel, with `data-*` attributes for
 //!   machine-readable scalar fields and visible HTML children for text content.
@@ -21,9 +20,7 @@
 
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
-use schedule_core::widget_json::{WidgetExport, WidgetMeta, WidgetRoom};
-
-const HTML_EMBEDDED_VARIANT: &str = "html-embedded";
+use schedule_core::widget_json::{WidgetExport, WidgetRoom};
 
 /// Generate the static schedule fragments for the widget-html embed format.
 ///
@@ -45,15 +42,10 @@ pub fn generate_static_schedule_html(export: &WidgetExport) -> Result<String> {
 // ── Structural JSON block ──────────────────────────────────────────────────────
 
 fn build_structural_json(export: &WidgetExport) -> Result<String> {
-    let meta = WidgetMeta {
-        variant: HTML_EMBEDDED_VARIANT.to_string(),
-        ..export.meta.clone()
-    };
-
     let mut obj = serde_json::Map::new();
     obj.insert(
         "meta".to_string(),
-        serde_json::to_value(&meta).context("Failed to serialize meta")?,
+        serde_json::to_value(&export.meta).context("Failed to serialize meta")?,
     );
     obj.insert(
         "rooms".to_string(),
@@ -295,8 +287,7 @@ mod tests {
         WidgetExport {
             meta: WidgetMeta {
                 title: "Test Schedule".to_string(),
-                version: 0,
-                variant: "display".to_string(),
+                version: 1,
                 generator: "test".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),
@@ -339,10 +330,6 @@ mod tests {
         assert!(
             html.contains("data-cosam=\"schedule\""),
             "should contain schedule script block"
-        );
-        assert!(
-            html.contains("\"html-embedded\""),
-            "variant should be html-embedded"
         );
         assert!(
             !html.contains("\"panels\""),

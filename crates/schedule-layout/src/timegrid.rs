@@ -41,7 +41,7 @@ pub struct GridCell {
 /// Computed grid layout for a set of panels.
 #[derive(Debug)]
 pub struct GridLayout {
-    pub room_order: Vec<i64>,
+    pub room_order: Vec<i32>,
     pub time_slots: Vec<TimeSlot>,
     pub cells: Vec<GridCell>,
     pub break_cells: Vec<GridCell>,
@@ -91,12 +91,12 @@ impl GridLayout {
             .collect();
 
         // Determine room order from regular events
-        let room_ids_used: std::collections::HashSet<i64> = regular
+        let room_ids_used: std::collections::HashSet<i32> = regular
             .iter()
             .flat_map(|p| p.room_ids.iter().copied())
             .collect();
 
-        let mut room_order: Vec<i64> = data
+        let mut room_order: Vec<i32> = data
             .sorted_rooms()
             .iter()
             .filter(|r| room_ids_used.contains(&r.uid))
@@ -278,7 +278,7 @@ impl GridLayout {
     }
 
     /// Look up a room by UID.
-    pub fn room_name<'a>(&self, uid: i64, rooms: &'a [Room]) -> &'a str {
+    pub fn room_name<'a>(&self, uid: i32, rooms: &'a [Room]) -> &'a str {
         rooms
             .iter()
             .find(|r| r.uid == uid)

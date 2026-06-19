@@ -900,20 +900,13 @@ mod tests {
     use super::*;
     use crate::config::{ContentMode, PaperSize, TimeSplit};
     use crate::model::{Meta, Panel, Room, ScheduleData};
-    use std::collections::HashMap;
     use std::io::Read;
 
     fn schedule() -> ScheduleData {
         ScheduleData {
             meta: Meta {
                 title: "Test & Demo".into(),
-                version: 0,
-                variant: String::new(),
-                generator: String::new(),
-                generated: String::new(),
-                modified: String::new(),
-                start_time: None,
-                end_time: None,
+                ..Meta::default()
             },
             panels: vec![
                 Panel {
@@ -941,18 +934,18 @@ mod tests {
                     uid: 1,
                     short_name: "A".into(),
                     long_name: "Salon A".into(),
-                    hotel_room: String::new(),
                     sort_key: 0,
+                    ..Room::default()
                 },
                 Room {
                     uid: 2,
                     short_name: "B".into(),
                     long_name: "Salon B".into(),
-                    hotel_room: String::new(),
                     sort_key: 1,
+                    ..Room::default()
                 },
             ],
-            panel_types: HashMap::new(),
+            panel_types: Default::default(),
             timeline: vec![],
             presenters: vec![],
         }

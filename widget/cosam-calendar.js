@@ -745,7 +745,7 @@ import QRCode from 'qrcode';
       if (this.filters.presenter) {
         const selectedPresenter = this.filters.presenter;
 
-        // V9 format: Use panelIds for efficient filtering
+        // Use precomputed panelIds for efficient filtering
         let presenterPanelIds = this.data.presenterToPanels.get(selectedPresenter);
 
         if (!presenterPanelIds) {
@@ -768,7 +768,7 @@ import QRCode from 'qrcode';
         if (presenterPanelIds && presenterPanelIds.size > 0) {
           events = events.filter(e => presenterPanelIds.has(e.id));
         } else {
-          events = []; // Presenter not found in V9 data or group has no panels
+          events = []; // Presenter not found, or group has no panels
         }
       }
 
@@ -965,12 +965,11 @@ import QRCode from 'qrcode';
       const panels = Array.isArray(data.panels) ? data.panels : [];
 
       // Build presenter-to-panel mapping for efficient lookups.
-      // Version 0 is the new export format (structurally identical to V9).
+      // Presenters are a top-level array in the export format.
       let presenters = [];
       let presenterToPanels = new Map();
 
-      const version = data.meta && data.meta.version;
-      if (Array.isArray(data.presenters) && version >= 0) {
+      if (Array.isArray(data.presenters)) {
         presenters = data.presenters;
 
         for (const presenter of data.presenters.filter(p => p.panelIds && p.panelIds.length > 0)) {

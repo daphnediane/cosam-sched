@@ -5661,6 +5661,7 @@ dependencies = [
  "regex",
  "reqwest",
  "schedule-macro",
+ "schedule-widget-format",
  "scraper",
  "serde",
  "serde_json",
@@ -5679,6 +5680,7 @@ dependencies = [
  "qrcode",
  "regex",
  "schedule-core",
+ "schedule-widget-format",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -5696,6 +5698,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "schedule-widget-format"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

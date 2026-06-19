@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Jun 18 10:56:48 2026
+Updated on: Thu Jun 18 23:28:20 2026
 
 ## Completed
 
@@ -199,6 +199,8 @@ entity types distinct.
 * [REFACTOR-148] Let common fields (name, description, notes, etc.) be defined once and reused by
 any entity type, without per-type `CommonData` edits — extending beyond the
 panel-like trio.
+* [REFACTOR-153] Collapse the duplicated widget JSON types into one `schedule-widget-format` leaf
+crate and fix four format usability warts.
 * [UI-085] Audit and update the calendar widget to handle the format differences between
 the v9 JSON output and the format produced by `cosam-convert` (CLI-030).
 * [UI-087] The Event Type filter shows all non-hidden panel types even when none of that
@@ -930,6 +932,7 @@ trait and unified `name` (all seven name-bearing entities), `description` /
 [REFACTOR-147]: ../work-item/closed/done/REFACTOR-147.md
 [REFACTOR-148]: ../work-item/closed/done/REFACTOR-148.md
 [REFACTOR-149]: ../work-item/open/3-LOW/REFACTOR-149.md
+[REFACTOR-153]: ../work-item/closed/done/REFACTOR-153.md
 [UI-085]: ../work-item/closed/done/UI-085.md
 [UI-087]: ../work-item/closed/done/UI-087.md
 [UI-088]: ../work-item/closed/done/UI-088.md

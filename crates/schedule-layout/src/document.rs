@@ -45,7 +45,7 @@ struct Section<'a> {
     /// Panels the grid is built from (the full day for room/presenter sections).
     grid_panels: Vec<&'a Panel>,
     /// Highlight this room's grid column (Room/RoomDay).
-    highlight_room: Option<i64>,
+    highlight_room: Option<i32>,
     /// Highlight these event cells by panel id (Presenter/PresenterDay).
     highlight_panel_ids: Option<HashSet<String>>,
     /// Running-header left label (2-D entity); empty otherwise.
@@ -348,6 +348,12 @@ fn is_workshop(data: &ScheduleData, panel: &Panel) -> bool {
 /// ISO 8601 datetime strings used to clamp the grid to the section boundary.
 type TimedSection<'a> = (String, Vec<&'a Panel>, Option<String>, Option<String>);
 
+/// Borrow a string as `Some` only when non-empty (the widget format uses `""`
+/// for "absent" naive datetimes rather than omitting the field).
+fn non_empty(s: &str) -> Option<&str> {
+    (!s.is_empty()).then_some(s)
+}
+
 /// Flatten `by_day` into time-labeled panel slices for `time`.
 fn time_sections<'a>(
     time: &TimeSplit,
@@ -405,7 +411,7 @@ fn split_on_timeline<'a>(
     let mut tl_boundaries: Vec<(&str, &str, &str)> = timeline
         .iter()
         .filter_map(|t| {
-            let start = t.start_time.as_deref()?;
+            let start = non_empty(&t.start_time)?;
             let date = start.get(..10)?;
             Some((date, start, t.name.as_str()))
         })
@@ -679,8 +685,8 @@ fn build_sections<'a>(
             &by_day,
             &all_dates,
             &data.timeline,
-            data.meta.start_time.as_deref(),
-            data.meta.end_time.as_deref(),
+            non_empty(&data.meta.start_time),
+            non_empty(&data.meta.end_time),
         )
         .into_iter()
         .map(|(label, time_panels, win_start, win_end)| {
@@ -742,8 +748,8 @@ fn build_sections<'a>(
                     &by_day,
                     &all_dates,
                     &data.timeline,
-                    data.meta.start_time.as_deref(),
-                    data.meta.end_time.as_deref(),
+                    non_empty(&data.meta.start_time),
+                    non_empty(&data.meta.end_time),
                 )
                 .into_iter()
                 .filter_map(move |(time_label, time_panels, win_start, win_end)| {
@@ -819,8 +825,8 @@ fn build_sections<'a>(
                     &by_day,
                     &all_dates,
                     &data.timeline,
-                    data.meta.start_time.as_deref(),
-                    data.meta.end_time.as_deref(),
+                    non_empty(&data.meta.start_time),
+                    non_empty(&data.meta.end_time),
                 )
                 .into_iter()
                 .filter_map(move |(time_label, time_panels, win_start, win_end)| {
@@ -953,29 +959,18 @@ mod tests {
     use super::*;
     use crate::config::{LayoutConfig, PaperSize};
     use crate::model::{Meta, Panel, Presenter, Room, ScheduleData};
-    use std::collections::HashMap;
 
     fn empty_schedule() -> ScheduleData {
         ScheduleData {
             meta: Meta {
                 title: "T".into(),
-                version: 0,
-                variant: String::new(),
-                generator: String::new(),
-                generated: String::new(),
-                modified: String::new(),
-                start_time: None,
-                end_time: None,
+                ..Meta::default()
             },
-            panels: vec![],
-            rooms: vec![],
-            panel_types: HashMap::new(),
-            timeline: vec![],
-            presenters: vec![],
+            ..ScheduleData::default()
         }
     }
 
-    fn panel(id: &str, day_hour: &str, room: i64, presenter: &str) -> Panel {
+    fn panel(id: &str, day_hour: &str, room: i32, presenter: &str) -> Panel {
         Panel {
             id: id.into(),
             base_id: id.into(),
@@ -999,22 +994,21 @@ mod tests {
                 uid: 1,
                 short_name: "A".into(),
                 long_name: "Salon A".into(),
-                hotel_room: String::new(),
                 sort_key: 0,
+                ..Room::default()
             },
             Room {
                 uid: 2,
                 short_name: "B".into(),
                 long_name: "Salon B".into(),
-                hotel_room: String::new(),
                 sort_key: 1,
+                ..Room::default()
             },
         ];
         d.presenters = vec![Presenter {
-            uid: "Ada".into(),
             name: "Ada".into(),
-            short_name: None,
             rank: "guest".into(),
+            ..Presenter::default()
         }];
         d.panels = vec![
             panel("P1", "26T09", 1, "Ada"), // Fri AM, room A, Ada

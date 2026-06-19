@@ -22,7 +22,7 @@ use crate::typst_gen::escape_typst;
 #[derive(Debug, Clone)]
 pub(crate) struct GridRenderConfig {
     /// If set, highlight this room's column with brand-primary tint.
-    pub highlight_room_uid: Option<i64>,
+    pub highlight_room_uid: Option<i32>,
     /// If set, highlight individual event cells whose `panel.id` is in this set
     /// (used for presenter schedules). Independent of the column highlight.
     pub highlight_panel_ids: Option<HashSet<String>>,
@@ -92,7 +92,7 @@ impl Default for GridRenderConfig {
 
 impl GridRenderConfig {
     /// Full-page configuration for standalone schedule grids.
-    pub fn full_page(day_label: &str, highlight_room_uid: Option<i64>) -> Self {
+    pub fn full_page(day_label: &str, highlight_room_uid: Option<i32>) -> Self {
         Self {
             highlight_room_uid,
             highlight_panel_ids: None,
@@ -523,18 +523,14 @@ fn render_event_cell(
     };
 
     // Duration line
-    let dur_label = panel
-        .duration
-        .map(|d| {
-            if d >= 60 && d % 60 == 0 {
-                format!("{} hr", d / 60)
-            } else if d >= 60 {
-                format!("{} hr {} min", d / 60, d % 60)
-            } else {
-                format!("{} min", d)
-            }
-        })
-        .unwrap_or_default();
+    let d = panel.duration;
+    let dur_label = if d >= 60 && d % 60 == 0 {
+        format!("{} hr", d / 60)
+    } else if d >= 60 {
+        format!("{} hr {} min", d / 60, d % 60)
+    } else {
+        format!("{} min", d)
+    };
     let dur_str = if dur_label.is_empty() {
         String::new()
     } else {

@@ -3,6 +3,7 @@ members = [
     "crates/schedule-core",
     "crates/schedule-macro",
     "crates/schedule-layout",
+    "crates/schedule-widget-format",
     "apps/cosam-convert",
     "apps/cosam-modify",
     "apps/cosam-editor",

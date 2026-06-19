@@ -26,8 +26,8 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::types::{
-    WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelType, WidgetPresenter, WidgetRoom,
-    WidgetTimeline,
+    WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter,
+    WidgetRoom, WidgetTimeline,
 };
 
 /// Errors that can occur during widget JSON export/import.
@@ -128,8 +128,7 @@ pub fn export_to_widget_json(
 
     let meta = WidgetMeta {
         title: title.to_string(),
-        version: 0,
-        variant: "display".to_string(),
+        version: 1,
         generator: format!("cosam-convert {}", env!("CARGO_PKG_VERSION")),
         generated: now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         modified: schedule
@@ -230,16 +229,14 @@ fn export_panel_types(
 
     for (_, internal) in schedule.iter_entities::<PanelTypeEntityType>() {
         let data = &internal.data;
-        let mut colors = HashMap::new();
-        if let Some(ref color) = data.color {
-            colors.insert("color".to_string(), color.clone());
-        }
-        if let Some(ref bw) = data.bw {
-            colors.insert("bw".to_string(), bw.clone());
-        }
+        let colors = WidgetPanelColors {
+            color: data.color.clone(),
+            bw: data.bw.clone(),
+        };
         panel_types.insert(
             data.prefix.clone(),
             WidgetPanelType {
+                prefix: data.prefix.clone(),
                 kind: data.panel_kind.clone(),
                 colors,
                 is_break: data.is_break,
@@ -256,10 +253,12 @@ fn export_panel_types(
     panel_types
         .entry("%IB".to_string())
         .or_insert_with(|| WidgetPanelType {
+            prefix: "%IB".to_string(),
             kind: "Implicit Break".to_string(),
-            colors: [("color".to_string(), "#F5F5F5".to_string())]
-                .into_iter()
-                .collect(),
+            colors: WidgetPanelColors {
+                color: Some("#F5F5F5".to_string()),
+                bw: None,
+            },
             is_break: true,
             is_cafe: false,
             is_workshop: false,
@@ -272,10 +271,12 @@ fn export_panel_types(
     panel_types
         .entry("%NB".to_string())
         .or_insert_with(|| WidgetPanelType {
+            prefix: "%NB".to_string(),
             kind: "Overnight Break".to_string(),
-            colors: [("color".to_string(), "#F5F5F5".to_string())]
-                .into_iter()
-                .collect(),
+            colors: WidgetPanelColors {
+                color: Some("#F5F5F5".to_string()),
+                bw: None,
+            },
             is_break: true,
             is_cafe: false,
             is_workshop: false,
@@ -319,7 +320,7 @@ fn export_timeline(
         timeline.push(WidgetTimeline {
             id: internal.code.full_id(),
             start_time: format_naive_dt(start),
-            description: internal.data.name.clone(),
+            name: internal.data.name.clone(),
             panel_type: prefix,
             note: internal.notes.get_owned(NoteKind::Public),
         });
@@ -1099,8 +1100,7 @@ mod tests {
         let result = export_to_widget_json(&schedule, "Test Schedule", false);
         assert!(result.is_ok());
         let export = result.unwrap();
-        assert_eq!(export.meta.version, 0);
-        assert_eq!(export.meta.variant, "display");
+        assert_eq!(export.meta.version, 1);
         // Empty schedule has no panels so no panel types should be emitted
         assert!(export.panel_types.is_empty());
     }
@@ -1134,7 +1134,8 @@ mod tests {
         let gp = &result["GP"];
         assert_eq!(gp.kind, "Guest Panel");
         assert!(!gp.is_timeline);
-        assert!(gp.colors.contains_key("color"));
+        assert!(gp.colors.color.is_some());
+        assert_eq!(gp.prefix, "GP");
         // Synthetic break types always added
         assert!(result.contains_key("%IB"));
         assert!(result.contains_key("%NB"));

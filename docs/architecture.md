@@ -14,16 +14,25 @@ offline collaborative editing via CRDT-backed storage (fully implemented).
 
 ```text
 crates/
-  schedule-core/   — Entity/field system, data model, schedule container
-  schedule-macro/  — Field and edge descriptor proc-macros
+  schedule-core/           — Entity/field system, data model, schedule container
+  schedule-macro/          — Field and edge descriptor proc-macros
+  schedule-widget-format/  — Shared serde DTO for the widget/interchange JSON
+  schedule-layout/         — Print-layout engine (Typst/PDF, IDML) over the DTO
 apps/
   cosam-convert/   — Format conversion (XLSX → JSON, JSON → JSON, etc.)
   cosam-modify/    — CLI schedule editing tool
   cosam-editor/    — GUI desktop editor (GPUI or iced; decision deferred)
+  cosam-viewer/    — Read-only schedule viewer
 ```
 
-`schedule-core` is the single library crate for all data model code. Application
+`schedule-core` is the single library crate for all data-model code. Application
 crates depend on it and add their own I/O, UI, and format-specific logic.
+
+`schedule-widget-format` is a dependency-light leaf crate (serde only) holding the
+one widget/interchange DTO (`WidgetExport` and friends). `schedule-core` produces
+it on export, and `schedule-layout`, `cosam-convert`, `cosam-viewer`, and the WASM
+print plugin all consume that same type — so the on-the-wire shape and the parsed
+shape can never drift. See `widget-json-format.md`.
 
 `schedule-macro` provides function-like proc-macros for generating field and edge
 descriptors: `accessor_field_properties!`, `edge_field_properties!`, and

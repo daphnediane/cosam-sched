@@ -232,7 +232,7 @@ impl ViewerState {
                     .iter()
                     .filter_map(|uid| doc.room_by_uid(*uid).map(|r| r.long_name.clone()))
                     .collect();
-                let type_color = pt.and_then(|t| t.colors.get("color")).cloned();
+                let type_color = pt.and_then(|t| t.colors.color.clone());
 
                 Some(PanelView {
                     id: p.id.clone(),

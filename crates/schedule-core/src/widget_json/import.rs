@@ -254,13 +254,13 @@ fn import_panel_types(
             FieldUpdate::set(&crate::tables::panel_type::FIELD_IS_PRIVATE, wpt.is_private),
         ];
 
-        if let Some(color) = wpt.colors.get("color") {
+        if let Some(color) = wpt.colors.color.as_ref() {
             updates.push(FieldUpdate::set(
                 &crate::tables::panel_type::FIELD_COLOR,
                 color.as_str(),
             ));
         }
-        if let Some(bw) = wpt.colors.get("bw") {
+        if let Some(bw) = wpt.colors.bw.as_ref() {
             updates.push(FieldUpdate::set(
                 &crate::tables::panel_type::FIELD_BW,
                 bw.as_str(),
@@ -434,10 +434,7 @@ fn import_timeline(
 
         let mut updates = vec![
             FieldUpdate::set(&crate::tables::timeline::FIELD_CODE, wt.id.as_str()),
-            FieldUpdate::set(
-                &crate::tables::timeline::FIELD_NAME,
-                wt.description.as_str(),
-            ),
+            FieldUpdate::set(&crate::tables::timeline::FIELD_NAME, wt.name.as_str()),
         ];
 
         if let Some(ref note) = wt.note {
@@ -664,9 +661,10 @@ mod tests {
     use super::*;
     use crate::tables::panel::PanelEntityType;
     use crate::widget_json::types::{
-        WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelType, WidgetPresenter, WidgetRoom,
+        WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter,
+        WidgetRoom,
     };
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
 
     #[test]
     fn test_decode_gzip_base64_plain() {
@@ -713,8 +711,9 @@ mod tests {
         panel_types.insert(
             "GP".to_string(),
             WidgetPanelType {
+                prefix: "GP".to_string(),
                 kind: "Guest Panel".to_string(),
-                colors: HashMap::new(),
+                colors: WidgetPanelColors::default(),
                 is_break: false,
                 is_cafe: false,
                 is_workshop: false,
@@ -776,7 +775,6 @@ mod tests {
             meta: WidgetMeta {
                 title: "Test Schedule".to_string(),
                 version: 1,
-                variant: "standard".to_string(),
                 generator: "cosam-convert".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),
@@ -803,8 +801,9 @@ mod tests {
         panel_types.insert(
             "GP".to_string(),
             WidgetPanelType {
+                prefix: "GP".to_string(),
                 kind: "Guest Panel".to_string(),
-                colors: HashMap::new(),
+                colors: WidgetPanelColors::default(),
                 is_break: false,
                 is_cafe: false,
                 is_workshop: false,
@@ -857,7 +856,6 @@ mod tests {
             meta: WidgetMeta {
                 title: "Test Schedule".to_string(),
                 version: 1,
-                variant: "standard".to_string(),
                 generator: "cosam-convert".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),
@@ -888,8 +886,9 @@ mod tests {
         panel_types.insert(
             "GP".to_string(),
             WidgetPanelType {
+                prefix: "GP".to_string(),
                 kind: "Guest Panel".to_string(),
-                colors: HashMap::new(),
+                colors: WidgetPanelColors::default(),
                 is_break: false,
                 is_cafe: false,
                 is_workshop: false,
@@ -942,7 +941,6 @@ mod tests {
             meta: WidgetMeta {
                 title: "Test Schedule".to_string(),
                 version: 1,
-                variant: "standard".to_string(),
                 generator: "cosam-convert".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),
@@ -977,8 +975,9 @@ mod tests {
         panel_types.insert(
             "GP".to_string(),
             WidgetPanelType {
+                prefix: "GP".to_string(),
                 kind: "Guest Panel".to_string(),
-                colors: HashMap::new(),
+                colors: WidgetPanelColors::default(),
                 is_break: false,
                 is_cafe: false,
                 is_workshop: false,
@@ -1044,7 +1043,6 @@ mod tests {
             meta: WidgetMeta {
                 title: "Test Schedule".to_string(),
                 version: 1,
-                variant: "standard".to_string(),
                 generator: "cosam-convert".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),

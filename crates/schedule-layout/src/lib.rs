@@ -39,5 +39,5 @@ pub use config::{
     ContentMode, FooterMode, LayoutConfig, LayoutFormat, Orientation, PanelFilter, PaperSize,
     SectionSplit, TimeSplit,
 };
-pub use model::ScheduleData;
+pub use model::{from_schedule, ScheduleData};
 pub use timegrid::GridLayout;

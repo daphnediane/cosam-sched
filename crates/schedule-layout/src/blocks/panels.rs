@@ -448,8 +448,12 @@ fn panel_block<'a>(
     // continuation part of a multi-part premium series shows the price faded and
     // parenthesized — the full notice below explains it covers the whole series.
     let parenthesize_cost = panel.is_premium && panel.is_series_continuation();
-    let right_items =
-        build_right_column(&room_str, &time_range, panel.cost.as_deref(), parenthesize_cost);
+    let right_items = build_right_column(
+        &room_str,
+        &time_range,
+        panel.cost.as_deref(),
+        parenthesize_cost,
+    );
 
     // Credits on their own line below the panel name
     let credits_line = if !panel.credits.is_empty() {
@@ -735,19 +739,9 @@ mod tests {
         ScheduleData {
             meta: Meta {
                 title: "T".into(),
-                version: 0,
-                variant: String::new(),
-                generator: String::new(),
-                generated: String::new(),
-                modified: String::new(),
-                start_time: None,
-                end_time: None,
+                ..Meta::default()
             },
-            panels: vec![],
-            rooms: vec![],
-            panel_types: std::collections::HashMap::new(),
-            timeline: vec![],
-            presenters: vec![],
+            ..ScheduleData::default()
         }
     }
 
