@@ -20,6 +20,7 @@ import QRCode from 'qrcode';
     filter: '<svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',
     list: '<svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
     grid: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
+    gridLines: '<svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/><line x1="6" y1="3" x2="6" y2="21"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="18" y1="3" x2="18" y2="21"/></svg>',
     search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
     print: '<svg viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
     x: '<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
@@ -177,6 +178,101 @@ import QRCode from 'qrcode';
   function getTimeSlotKey(isoStr) {
     if (!isoStr) return '';
     return isoStr.substring(0, 16); // YYYY-MM-DDTHH:MM
+  }
+
+  // Fill in regular time-unit keys between the earliest and latest of event boundaries,
+  // so the print grid has an even time axis — one row per unit — even where no
+  // event starts or ends. The unit is based on minute components of event start/end times
+  // (divisions of hours), treating 0 remainder as 60 minutes.
+  // Returns the union (event boundaries kept), sorted.
+  // Only regular events (not breaks) cause intermediate slots to be filled.
+  function evenTimeKeys(events, regularEvents) {
+    if (events.length < 2) return events.map(e => getTimeSlotKey(e.startTime));
+    // Use all event boundaries (including breaks) for the initial keys set
+    const keys = [...new Set(events.flatMap(e => [getTimeSlotKey(e.startTime), getTimeSlotKey(e.endTime)]))].sort();
+    if (keys.length < 2) return keys;
+
+    // Calculate unit based on minute components of event start/end times
+    const minuteComponents = regularEvents.flatMap(e => {
+      const startMin = parseInt(e.startTime.split('T')[1].split(':')[1]) || 0;
+      const endMin = parseInt(e.endTime.split('T')[1].split(':')[1]) || 0;
+      return [startMin, endMin];
+    }).filter(m => m > 0);
+
+    // Find the greatest common divisor of all minute components
+    // Always include 60 to ensure we get divisions of hours
+    const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+    let unit = 60;
+    for (let i = 0; i < minuteComponents.length; i++) {
+      unit = gcd(unit, minuteComponents[i]);
+    }
+
+    // Clamp to 15-60 minutes
+    unit = Math.max(15, Math.min(60, unit));
+    const out = new Set(keys);
+
+    // For each regular event, fill intermediate slots at unit interval during its duration
+    for (const evt of regularEvents) {
+      const intermediateKeys = getIntermediateTimeKeys(evt.startTime, evt.endTime, unit);
+      for (const key of intermediateKeys) {
+        out.add(key);
+      }
+    }
+
+    return [...out].sort();
+  }
+
+  // Get intermediate time keys between start and end at unit intervals
+  function getIntermediateTimeKeys(startStr, endStr, unitMinutes) {
+    const keys = [];
+    const start = parseLocalTimeComponents(startStr);
+    const end = parseLocalTimeComponents(endStr);
+
+    let currentDay = start.day;
+    let currentHour = start.hour;
+    let currentMinute = start.minute;
+
+    const endTotalMinutes = end.day * 24 * 60 + end.hour * 60 + end.minute;
+    let currentTotalMinutes = start.day * 24 * 60 + start.hour * 60 + start.minute;
+
+    while (currentTotalMinutes <= endTotalMinutes) {
+      const key = formatTimeKey(currentDay, currentHour, currentMinute);
+      keys.push(key);
+      currentTotalMinutes += unitMinutes;
+      currentDay = Math.floor(currentTotalMinutes / (24 * 60));
+      const dayMinutes = currentTotalMinutes % (24 * 60);
+      currentHour = Math.floor(dayMinutes / 60);
+      currentMinute = dayMinutes % 60;
+    }
+
+    return keys;
+  }
+
+  // Parse local time string into components (day offset from first key, hour, minute)
+  function parseLocalTimeComponents(isoStr) {
+    const [datePart, timePart] = isoStr.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hour, minute, second = 0] = timePart.split(':').map(Number);
+
+    // Calculate day offset from a reference date (using the first key's date)
+    // For simplicity, we'll use the actual date difference
+    const refDate = new Date(2026, 5, 25); // June 25, 2026 as reference
+    const currentDate = new Date(year, month - 1, day);
+    const dayOffset = Math.floor((currentDate - refDate) / (1000 * 60 * 60 * 24));
+
+    return { day: dayOffset, hour, minute };
+  }
+
+  // Format time key from components
+  function formatTimeKey(dayOffset, hour, minute) {
+    const refDate = new Date(2026, 5, 25);
+    const targetDate = new Date(refDate.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const year = targetDate.getFullYear();
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const hourStr = String(hour).padStart(2, '0');
+    const minuteStr = String(minute).padStart(2, '0');
+    return `${year}-${month}-${day}T${hourStr}:${minuteStr}`;
   }
 
   function escapeHtml(s) {
@@ -370,6 +466,8 @@ import QRCode from 'qrcode';
       this.filtersOpen = false;
       this.modalEvent = null;
       this.stylePageBody = false;
+      // Grid view: show even time grid lines (regular time-unit rows between events)
+      this.evenTimeGrid = false;
       // Sticky-header top offset config (see CosAmCalendar.init).
       this.stickyOffset = 0;
       this.stickyOffsetSelector = null;
@@ -405,6 +503,7 @@ import QRCode from 'qrcode';
           if (saved.view) this.view = saved.view;
           if (saved.activeDay !== undefined) this.activeDay = saved.activeDay;
           if (saved.filtersOpen !== undefined) this.filtersOpen = saved.filtersOpen;
+          if (saved.evenTimeGrid !== undefined) this.evenTimeGrid = saved.evenTimeGrid;
 
           // Load named schedules (new format), or migrate from single starred array
           if (saved.schedules && typeof saved.schedules === 'object' && !Array.isArray(saved.schedules)) {
@@ -465,6 +564,7 @@ import QRCode from 'qrcode';
           view: this.view,
           activeDay: this.activeDay,
           filtersOpen: this.filtersOpen,
+          evenTimeGrid: this.evenTimeGrid,
           activeScheduleName: this.activeScheduleName,
           schedules: schedulesObj,
           filters: {
@@ -841,7 +941,7 @@ import QRCode from 'qrcode';
       if (events.length === 0) {
         eventsRegion.appendChild(el('div', { className: 'cosam-empty' }, 'No events match your filters.'));
       } else if (this.state.view === 'grid') {
-        eventsRegion.appendChild(this._buildGridView(events));
+        eventsRegion.appendChild(this._buildGridView(events, false, this.state.evenTimeGrid));
       } else {
         eventsRegion.appendChild(this._buildListView(events));
       }
@@ -1227,6 +1327,20 @@ import QRCode from 'qrcode';
       });
       left.append(listBtn, gridBtn);
 
+      // Even time grid toggle (only in grid view)
+      if (this.state.view === 'grid') {
+        const evenGridBtn = el('button', {
+          type: 'button',
+          className: 'cosam-btn cosam-btn-icon' + (this.state.evenTimeGrid ? ' active' : ''),
+          title: 'Even Time Grid',
+          'aria-label': 'Even time grid',
+          'aria-pressed': this.state.evenTimeGrid ? 'true' : 'false',
+          innerHTML: ICONS.gridLines,
+          onClick: () => { this.state.evenTimeGrid = !this.state.evenTimeGrid; this.render(); },
+        });
+        left.appendChild(evenGridBtn);
+      }
+
       // Filter toggle
       const filterBtn = el('button', {
         type: 'button',
@@ -1360,6 +1474,12 @@ import QRCode from 'qrcode';
         onClick: () => this._handlePrint(),
       });
       right.appendChild(printBtn);
+
+      // Print plugin toolbar contribution (e.g. the advanced print-format
+      // dropdown), inserted next to the print button when a plugin is registered.
+      if (this.state._printPlugin && typeof this.state._printPlugin.extendToolbar === 'function') {
+        this.state._printPlugin.extendToolbar(right, this._printPluginCtx());
+      }
 
       // Help
       const helpBtn = el('button', {
@@ -1625,7 +1745,7 @@ import QRCode from 'qrcode';
 
     // ── List View ──
 
-    _buildListView(events) {
+    _buildListView(events, isPrintLayout = false) {
       const container = el('div', { className: 'cosam-list-view' });
 
       // Group by time slot
@@ -1696,7 +1816,7 @@ import QRCode from 'qrcode';
           if (this.state._isBreakEvent(evt)) {
             group.appendChild(this._buildBreakBanner(evt));
           } else {
-            group.appendChild(this._buildEventCard(evt));
+            group.appendChild(this._buildEventCard(evt, isPrintLayout));
           }
         }
         daySection.appendChild(group);
@@ -1742,7 +1862,7 @@ import QRCode from 'qrcode';
       return banner;
     }
 
-    _buildEventCard(evt) {
+    _buildEventCard(evt, isPrintLayout = false) {
       const isStarred = this.state.starred.has(evt.id);
       const isShared = this.state.sharedStarred.has(evt.id);
       const typeClass = this._panelTypeClass(evt.panelType);
@@ -1766,35 +1886,88 @@ import QRCode from 'qrcode';
 
       // Meta
       const meta = el('div', { className: 'cosam-event-meta' });
-      if (evt.startTime) {
-        const timeSpan = el('span', { className: 'cosam-meta-time' });
-        timeSpan.innerHTML = ICONS.clock + ' ' + escapeHtml(formatTimeRange(evt.startTime, evt.endTime));
-        meta.appendChild(timeSpan);
-      }
-      // Rooms - V5 roomIds array
-      if (evt.roomIds && evt.roomIds.length > 0) {
-        const roomSpan = el('span', { className: 'cosam-meta-room' });
-        roomSpan.innerHTML = ICONS.mappin;
-        const roomElements = [];
-        for (const roomId of evt.roomIds) {
-          const room = this.state.data.rooms.find(r => r.uid === roomId);
-          if (!room) continue;
-          const roomName = room.longName || room.shortName;
-          const textWrap = el('span', { className: 'cosam-meta-room-text' });
-          textWrap.appendChild(el('span', {}, roomName));
-          if (room.hotelRoom && room.hotelRoom !== roomName) {
-            textWrap.appendChild(el('span', { className: 'cosam-meta-room-sub' }, `(${room.hotelRoom})`));
+      const metaLeft = el('div', { className: 'cosam-event-meta-left' });
+      const metaRight = el('div', { className: 'cosam-event-meta-right' });
+
+      // For print layout (Typst style): title+presenter left, room+time right
+      // For screen display: time+room left, cost+capacity right
+      if (isPrintLayout) {
+        // Print layout: presenter on left, room+time on right
+        if (evt.credits && evt.credits.length > 0) {
+          const presenterSpan = el('span', { className: 'cosam-meta-presenter' });
+          presenterSpan.textContent = evt.credits.join(', ');
+          metaLeft.appendChild(presenterSpan);
+        }
+
+        // Right side: room and time
+        if (evt.roomIds && evt.roomIds.length > 0) {
+          const roomElements = [];
+          for (const roomId of evt.roomIds) {
+            const room = this.state.data.rooms.find(r => r.uid === roomId);
+            if (!room) continue;
+            const roomName = room.longName || room.shortName;
+            roomElements.push(roomName);
           }
-          roomElements.push(textWrap);
+          if (roomElements.length > 0) {
+            const roomSpan = el('span', { className: 'cosam-meta-room' });
+            roomSpan.textContent = roomElements.join(', ');
+            metaRight.appendChild(roomSpan);
+          }
         }
-        for (let i = 0; i < roomElements.length; i++) {
-          if (i > 0) roomSpan.appendChild(document.createTextNode(', '));
-          roomSpan.appendChild(roomElements[i]);
+        if (evt.startTime) {
+          const timeSpan = el('span', { className: 'cosam-meta-time' });
+          timeSpan.textContent = formatTimeRange(evt.startTime, evt.endTime);
+          if (metaRight.children.length > 0) {
+            metaRight.appendChild(document.createTextNode(' \\ '));
+          }
+          metaRight.appendChild(timeSpan);
         }
-        if (roomElements.length > 0) meta.appendChild(roomSpan);
+      } else {
+        // Screen layout: time and room on left
+        if (evt.startTime) {
+          const timeSpan = el('span', { className: 'cosam-meta-time' });
+          timeSpan.innerHTML = ICONS.clock + ' ' + escapeHtml(formatTimeRange(evt.startTime, evt.endTime));
+          metaLeft.appendChild(timeSpan);
+        }
+        // Rooms - V5 roomIds array
+        if (evt.roomIds && evt.roomIds.length > 0) {
+          const roomSpan = el('span', { className: 'cosam-meta-room' });
+          roomSpan.innerHTML = ICONS.mappin;
+          const roomElements = [];
+          for (const roomId of evt.roomIds) {
+            const room = this.state.data.rooms.find(r => r.uid === roomId);
+            if (!room) continue;
+            const roomName = room.longName || room.shortName;
+            const textWrap = el('span', { className: 'cosam-meta-room-text' });
+            textWrap.appendChild(el('span', {}, roomName));
+            if (room.hotelRoom && room.hotelRoom !== roomName) {
+              textWrap.appendChild(el('span', { className: 'cosam-meta-room-sub' }, `(${room.hotelRoom})`));
+            }
+            roomElements.push(textWrap);
+          }
+          for (let i = 0; i < roomElements.length; i++) {
+            if (i > 0) roomSpan.appendChild(document.createTextNode(', '));
+            roomSpan.appendChild(roomElements[i]);
+          }
+          if (roomElements.length > 0) metaLeft.appendChild(roomSpan);
+        }
+        if (evt.kind) {
+          metaLeft.appendChild(el('span', {}, evt.kind));
+        }
+
+        // Right side: cost, capacity, etc.
+        if (evt.cost && evt.isPremium) {
+          metaRight.appendChild(el('span', { className: 'cosam-meta-cost' }, evt.cost));
+        }
+        const cardCap = capacityText(evt);
+        if (cardCap) {
+          metaRight.appendChild(el('span', { className: 'cosam-meta-capacity' }, 'Capacity: ' + cardCap));
+        }
       }
-      if (evt.kind) {
-        meta.appendChild(el('span', {}, evt.kind));
+
+      meta.appendChild(metaLeft);
+      if (metaRight.children.length > 0) {
+        meta.appendChild(metaRight);
       }
       body.appendChild(meta);
 
@@ -1824,8 +1997,8 @@ import QRCode from 'qrcode';
       const cardSeriesNote = seriesCostNote(evt);
       if (cardSeriesNote) body.appendChild(el('div', { className: 'cosam-event-series-note' }, cardSeriesNote));
 
-      // Presenters/Credits
-      if (evt.credits && evt.credits.length > 0) {
+      // Presenters/Credits (only in screen layout, not in print layout where they're in meta)
+      if (!isPrintLayout && evt.credits && evt.credits.length > 0) {
         body.appendChild(el('div', { className: 'cosam-event-presenters' }, evt.credits.join(', ')));
       }
 
@@ -1891,8 +2064,17 @@ import QRCode from 'qrcode';
 
     // ── Grid View ──
 
-    _buildGridView(events) {
-      const container = el('div', { className: 'cosam-grid-view' });
+    // printMode renders a print-friendly variant of the same CSS Grid: time
+    // rows become equal `1fr` tracks (even height, filling the column), the
+    // container is tagged `cosam-print-grid`, and the interactive on-screen
+    // footer is omitted (print emits its own footer band).
+    // printMode renders a print-friendly variant of the same CSS Grid (no
+    // interactive chrome, compact spacing). fillPage uses even `1fr` rows that
+    // stretch to fill a sized container (the advanced print's page-fill layout);
+    // without it, rows take a natural minimum height so a sparse day isn't
+    // stretched (the simple print).
+    _buildGridView(events, printMode = false, fillPage = false) {
+      const container = el('div', { className: 'cosam-grid-view' + (printMode ? ' cosam-print-grid' : '') });
 
       // Separate break events from regular events
       const regularEvents = events.filter(e => !this.state._isBreakEvent(e));
@@ -1915,10 +2097,13 @@ import QRCode from 'qrcode';
         return container;
       }
 
-      // Generate time slots from event start/end times
+      // Generate time slots from event start/end times. In fillPage (print)
+      // mode, fill in regular time units between boundaries so the grid has an
+      // even time axis — a row per unit even where nothing starts/stops (mirrors
+      // schedule-to-html's grid). Off-unit event boundaries keep their own line.
       const eventTimeKeys = [...new Set(events.flatMap(e => [getTimeSlotKey(e.startTime), getTimeSlotKey(e.endTime)]))].sort();
 
-      const allTimeKeys = eventTimeKeys;
+      const allTimeKeys = fillPage ? evenTimeKeys(events, regularEvents) : eventTimeKeys;
 
       // Convert to shorter names: weekday number + hour + minute (e.g., t51030 for Friday 10:30 AM)
       const timeSlotMap = {};
@@ -1933,7 +2118,8 @@ import QRCode from 'qrcode';
       });
 
       // Create grid template styles
-      const gridColumns = `[time] minmax(80px, 120px) ` + roomOrder.map(roomId => `[room-${roomId}] minmax(0, 1fr)`).join(' ');
+      const timeCol = printMode ? 'minmax(44px, 60px)' : 'minmax(80px, 120px)';
+      const gridColumns = `[time] ${timeCol} ` + roomOrder.map(roomId => `[room-${roomId}] minmax(0, 1fr)`).join(' ');
 
       // A sticky header row repeats at each new day: its time-column corner
       // shows the day (weekday over date) and the room columns repeat. Because
@@ -1950,24 +2136,41 @@ import QRCode from 'qrcode';
       for (let i = 0; i < allTimeKeys.length; i++) {
         if (startKeys.has(allTimeKeys[i])) lastStartIdx = i;
       }
+      // In fillPage mode every even unit is a real row, so only the final
+      // closing line (the last event end) folds onto the footer; otherwise fold
+      // every end-only key after the last event start.
+      const lastTrackIdx = fillPage ? timeSlots.length - 2 : lastStartIdx;
 
       const dayHeaders = [];
       const rowParts = [];
       const trailingLineNames = [];
       let hdrLastDayKey = null;
       for (let i = 0; i < timeSlots.length; i++) {
-        if (i > lastStartIdx) {
+        if (i > lastTrackIdx) {
           trailingLineNames.push(timeSlots[i]);
           continue;
         }
         const dayKey = getDayKey(allTimeKeys[i] + ':00');
         if (dayKey !== hdrLastDayKey) {
-          hdrLastDayKey = dayKey;
-          const rowName = 'dayhdr-' + dayKey.replace(/[^0-9a-z]/gi, '');
-          dayHeaders.push({ rowName, source: allTimeKeys[i] + ':00' });
-          rowParts.push(`[${rowName}] auto`);
+          // Only add day header if there's a non-break event starting at this time slot
+          const hasNonBreakStart = events.some(e =>
+            !this.state._isBreakEvent(e) && getTimeSlotKey(e.startTime) === allTimeKeys[i]
+          );
+          if (hasNonBreakStart) {
+            hdrLastDayKey = dayKey;
+            const rowName = 'dayhdr-' + dayKey.replace(/[^0-9a-z]/gi, '');
+            dayHeaders.push({ rowName, source: allTimeKeys[i] + ':00' });
+            rowParts.push(`[${rowName}] auto`);
+          }
         }
-        rowParts.push(`[${timeSlots[i]}] minmax(60px, auto)`);
+        // fillPage: even `minmax(0, 1fr)` slots that divide the page evenly. The
+        // `0` minimum (vs plain `1fr` = `minmax(auto, 1fr)`) lets a row shrink
+        // below its content on an over-full day, so every hour stays on the page
+        // and the panel content clips inside its cell instead of the hours.
+        // Simple print: a natural minimum so a sparse day isn't stretched tall.
+        // Screen: a taller scrollable minimum so dense slots stay legible.
+        const slotRow = fillPage ? 'minmax(0, 1fr)' : (printMode ? 'minmax(32px, auto)' : 'minmax(60px, auto)');
+        rowParts.push(`[${timeSlots[i]}] ${slotRow}`);
       }
       const footerLine = `[${trailingLineNames.concat(['footer']).join(' ')}] auto`;
       const gridRows = (dayHeaders.length > 0 ? rowParts.join(' ') : '[header] auto') + ` ${footerLine}`;
@@ -2135,9 +2338,9 @@ import QRCode from 'qrcode';
               const endRowIndex = timeSlots.indexOf(endSlotShortName);
               const startRowIndex = i;
 
-              if (endRowIndex > startRowIndex) {
+              if (endRowIndex > startRowIndex && endRowIndex < timeSlots.length) {
                 // Multi-time slot event - span to end time
-                const endSlotName = timeSlots[endRowIndex] || timeSlots[timeSlots.length - 1];
+                const endSlotName = timeSlots[endRowIndex];
                 eventEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
               } else {
                 // Calculate span based on duration if no exact end time slot found
@@ -2160,9 +2363,10 @@ import QRCode from 'qrcode';
       }
 
       // Add subtle background gridlines
-      // Horizontal row lines at each visible time slot (trailing end-only keys
-      // have no track — their line is folded onto [footer] — so skip them).
-      for (let i = 0; i <= lastStartIdx; i++) {
+      // Horizontal row lines at each visible time slot. Use lastTrackIdx (not
+      // lastStartIdx) so fillPage's even rows after the last event start still
+      // get lines; trailing end-only keys (folded onto [footer]) are skipped.
+      for (let i = 0; i <= lastTrackIdx; i++) {
         const rowLine = el('div', {
           className: 'cosam-grid-row-line',
           style: {
@@ -2184,7 +2388,9 @@ import QRCode from 'qrcode';
         grid.appendChild(colLine);
       }
 
-      // Add footer row
+      // Add the footer row (generated/modified stamp). The advanced page-fill
+      // print emits its own footer band, so skip it there; the simple print and
+      // the on-screen view keep this one.
       const footer = el('div', { className: 'cosam-grid-footer' });
       footer.style.gridRow = 'footer';
       footer.style.gridColumn = '1 / -1'; // Span all columns
@@ -2193,40 +2399,8 @@ import QRCode from 'qrcode';
       const footerContent = el('div', { className: 'cosam-grid-footer-content' });
       let footerText = 'End of Schedule';
 
-      if (this.state.data && this.state.data.meta) {
-        const meta = this.state.data.meta;
-        let timestamps = [];
-
-        // Add modified time if available
-        if (meta.modified) {
-          const modDate = new Date(meta.modified);
-          const month = modDate.toLocaleDateString('en-US', { month: 'short' });
-          const day = modDate.getDate();
-          let h = modDate.getHours();
-          let m = modDate.getMinutes();
-          const ampm = h >= 12 ? 'PM' : 'AM';
-          h = h % 12 || 12;
-          const timeStr = `${h}:${String(m).padStart(2, '0')} ${ampm}`;
-          timestamps.push(`Modified: ${month} ${day} ${timeStr}`);
-        }
-
-        // Add generated time if available and different from modified
-        if (meta.generated && (!meta.modified || meta.generated !== meta.modified)) {
-          const genDate = new Date(meta.generated);
-          const month = genDate.toLocaleDateString('en-US', { month: 'short' });
-          const day = genDate.getDate();
-          let h = genDate.getHours();
-          let m = genDate.getMinutes();
-          const ampm = h >= 12 ? 'PM' : 'AM';
-          h = h % 12 || 12;
-          const timeStr = `${h}:${String(m).padStart(2, '0')} ${ampm}`;
-          timestamps.push(`Generated: ${month} ${day} ${timeStr}`);
-        }
-
-        if (timestamps.length > 0) {
-          footerText = timestamps.join(' | ');
-        }
-      }
+      const tsText = this._scheduleTimestampText();
+      if (tsText) footerText = tsText;
 
       footerContent.textContent = footerText;
       footer.appendChild(footerContent);
@@ -3097,189 +3271,33 @@ import QRCode from 'qrcode';
       this._modalOverlay.classList.add('open');
     }
 
-    // ── Print grid table (repeating headers) ──
-
-    _buildPrintGridTable(events) {
-      const regularEvents = events.filter(e => !this.state._isBreakEvent(e));
-      const roomIds = [...new Set(regularEvents.flatMap(e => e.roomIds || []).filter(id => id !== null && id !== undefined))];
-      const roomOrder = this.state.data.rooms
-        .filter(r => roomIds.includes(r.uid || r.id))
-        .sort((a, b) => a.sortKey - b.sortKey)
-        .map(r => r.uid);
-      for (const rid of roomIds) {
-        if (!roomOrder.includes(rid)) roomOrder.push(rid);
-      }
-
-      if (roomOrder.length === 0) return el('div', {}, 'No rooms to display.');
-
-      // Collect all unique time slot keys, sorted
-      const allTimeKeys = [...new Set(events.flatMap(e => [
-        getTimeSlotKey(e.startTime), getTimeSlotKey(e.endTime)
-      ]).filter(Boolean))].sort();
-
-      const table = el('table', { className: 'cosam-print-grid-table' });
-      table.style.cssText = 'width:100%;border-collapse:collapse;table-layout:fixed;font-size:9px;';
-
-      // <colgroup>: fixed time col, equal percentage cols for rooms.
-      const colgroup = document.createElement('colgroup');
-      const timeCol = document.createElement('col');
-      timeCol.style.width = '64px';
-      colgroup.appendChild(timeCol);
-      for (let i = 0; i < roomOrder.length; i++) {
-        const col = document.createElement('col');
-        col.style.width = Math.floor(100 / roomOrder.length) + '%';
-        colgroup.appendChild(col);
-      }
-      table.appendChild(colgroup);
-
-      // <thead> repeats on every print page
-      const thead = document.createElement('thead');
-      const headerRow = document.createElement('tr');
-      const thTime = document.createElement('th');
-      thTime.textContent = 'Time';
-      thTime.style.cssText = 'background:#2a9ec7;color:#fff;padding:3px 6px;text-align:right;font-size:8px;border:1px solid #999;';
-      headerRow.appendChild(thTime);
-      for (const roomId of roomOrder) {
-        const room = this.state.data.rooms.find(r => r.uid === roomId);
-        const roomName = room ? (room.longName || room.shortName || 'Room') : 'Room';
-        const hotelRoom = room && room.hotelRoom && room.hotelRoom !== roomName ? room.hotelRoom : null;
-        const th = document.createElement('th');
-        th.style.cssText = 'background:#2a9ec7;color:#fff;padding:3px 4px;text-align:center;font-size:8px;border:1px solid #999;word-break:break-word;overflow:hidden;';
-        th.textContent = roomName;
-        if (hotelRoom) {
-          const sub = el('div', {}, '(' + hotelRoom + ')');
-          sub.style.cssText = 'font-size:7px;opacity:0.85;font-weight:400;';
-          th.appendChild(sub);
-        }
-        headerRow.appendChild(th);
-      }
-      thead.appendChild(headerRow);
-      table.appendChild(thead);
-
-      // <tbody>
-      const tbody = document.createElement('tbody');
-
-      // Track which cells are already covered by rowspan
-      const occupied = {}; // `${rowIdx},${colIdx}` -> true
-
-      for (let rowIdx = 0; rowIdx < allTimeKeys.length; rowIdx++) {
-        const key = allTimeKeys[rowIdx];
-        const slotEvents = events.filter(e => getTimeSlotKey(e.startTime) === key);
-        const slotDate = new Date(key + ':00');
-        const isHalfHour = slotDate.getMinutes() !== 0;
-
-        const tr = document.createElement('tr');
-
-        // Time cell
-        const tdTime = document.createElement('td');
-        tdTime.style.cssText = 'background:#e8f4fa;padding:2px 4px;text-align:right;font-size:' + (isHalfHour ? '7' : '8') + 'px;font-weight:' + (isHalfHour ? '400' : '700') + ';border:1px solid #ccc;vertical-align:top;white-space:nowrap;color:#000;';
-        tdTime.textContent = formatTimeGrid(key + ':00');
-        tr.appendChild(tdTime);
-
-        // Room cells
-        for (let colIdx = 0; colIdx < roomOrder.length; colIdx++) {
-          if (occupied[rowIdx + ',' + colIdx]) continue;
-
-          const roomId = roomOrder[colIdx];
-          const roomEvts = slotEvents.filter(e =>
-            !this.state._isBreakEvent(e) && e.roomIds && e.roomIds.includes(roomId)
-          );
-          const breakEvts = slotEvents.filter(e => this.state._isBreakEvent(e));
-
-          const td = document.createElement('td');
-          td.style.cssText = 'padding:2px 3px;border:1px solid #ccc;vertical-align:top;overflow:hidden;';
-
-          if (roomEvts.length > 0) {
-            const evt = roomEvts[0];
-            // Calculate rowspan based on event end time
-            const endKey = getTimeSlotKey(evt.endTime);
-            const endRowIdx = allTimeKeys.indexOf(endKey);
-            const rowspan = endRowIdx > rowIdx ? endRowIdx - rowIdx : 1;
-
-            if (rowspan > 1) {
-              td.rowSpan = rowspan;
-              for (let r = rowIdx; r < rowIdx + rowspan; r++) {
-                occupied[r + ',' + colIdx] = true;
-              }
-            }
-
-            // Apply panel type color as left border
-            const typeClass = this._panelTypeClass(evt.panelType);
-            const color = typeClass && this._panelTypeColors ? this._panelTypeColors.get(typeClass) : null;
-            td.style.borderLeft = '3px solid ' + (color || '#ccc');
-
-            const nameDiv = document.createElement('div');
-            nameDiv.style.cssText = 'font-weight:600;font-size:8px;word-break:break-word;color:#000;';
-            nameDiv.textContent = evt.name;
-            td.appendChild(nameDiv);
-
-            if (evt.credits && evt.credits.length > 0) {
-              const credDiv = document.createElement('div');
-              credDiv.style.cssText = 'font-size:7px;color:#555;font-style:italic;word-break:break-word;';
-              credDiv.textContent = evt.credits.join(', ');
-              td.appendChild(credDiv);
-            }
-
-            if (evt.duration) {
-              const durDiv = document.createElement('div');
-              durDiv.style.cssText = 'font-size:7px;color:#555;';
-              durDiv.textContent = formatDuration(evt.duration);
-              td.appendChild(durDiv);
-            }
-
-          } else if (breakEvts.length > 0) {
-            const breakEvt = breakEvts[0];
-            const endKey = getTimeSlotKey(breakEvt.endTime);
-            const endRowIdx = allTimeKeys.indexOf(endKey);
-            const rowspan = endRowIdx > rowIdx ? endRowIdx - rowIdx : 1;
-
-            // Break spans from current col to end of row,
-            // but only counts columns not already occupied by rowspan events
-            let colSpan = 0;
-            for (let c = colIdx; c < roomOrder.length; c++) {
-              if (!occupied[rowIdx + ',' + c]) colSpan++;
-            }
-
-            if (rowspan > 1) {
-              td.rowSpan = rowspan;
-              for (let r = rowIdx; r < rowIdx + rowspan; r++) {
-                for (let c = colIdx; c < roomOrder.length; c++) {
-                  occupied[r + ',' + c] = true;
-                }
-              }
-            } else {
-              for (let c = colIdx; c < roomOrder.length; c++) {
-                occupied[rowIdx + ',' + c] = true;
-              }
-            }
-            if (colSpan === 0) break;
-            if (colSpan > 1) td.colSpan = colSpan;
-
-            td.style.cssText = 'background:#f0f0f0;padding:2px 3px;border:1px solid #ccc;vertical-align:middle;text-align:center;overflow:hidden;';
-            const nameDiv = document.createElement('div');
-            nameDiv.style.cssText = 'font-size:7px;color:#666;';
-            nameDiv.textContent = breakEvt.name || '';
-            td.appendChild(nameDiv);
-            tr.appendChild(td);
-            break; // no more cells in this row after the break span
-
-          } else {
-            td.style.background = '#fafafa';
-          }
-
-          tr.appendChild(td);
-        }
-
-        tbody.appendChild(tr);
-      }
-
-      table.appendChild(tbody);
-      return table;
-    }
-
     // ── Print ──
 
+    /**
+     * Context handed to a print plugin's hooks (print / extendToolbar / attach).
+     * Exposes the data and renderer helpers a plugin needs to take over print
+     * rendering and contribute toolbar UI.
+     */
+    _printPluginCtx() {
+      return {
+        renderer: this,
+        state: this.state,
+        data: this.state.data,
+        brand: (this.state.data && this.state.data.brand) || {},
+        view: this.state.view,
+      };
+    }
+
     _handlePrint() {
+      // Delegate the print action to a registered plugin (advanced format
+      // system, Typst PDF, …) when present; otherwise run the built-in simple
+      // print below.
+      const plugin = this.state._printPlugin;
+      if (plugin && typeof plugin.print === 'function') {
+        plugin.print(this._printPluginCtx());
+        return;
+      }
+
       const BREAKPOINT = 750;
 
       // If window is narrow, show print options modal
@@ -3339,6 +3357,56 @@ import QRCode from 'qrcode';
       this._modalOverlay.classList.add('open');
     }
 
+    /**
+     * "Modified: … | Generated: …" line from schedule metadata, or '' when no
+     * timestamps are present. Shared by the on-screen grid footer and the simple
+     * print's per-page footer.
+     */
+    _scheduleTimestampText() {
+      const meta = this.state.data && this.state.data.meta;
+      if (!meta) return '';
+      const fmt = (iso) => {
+        const d = new Date(iso);
+        const month = d.toLocaleDateString('en-US', { month: 'short' });
+        const day = d.getDate();
+        let h = d.getHours();
+        const m = d.getMinutes();
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return `${month} ${day} ${h}:${String(m).padStart(2, '0')} ${ampm}`;
+      };
+      const ts = [];
+      if (meta.modified) ts.push(`Modified: ${fmt(meta.modified)}`);
+      if (meta.generated && (!meta.modified || meta.generated !== meta.modified)) {
+        ts.push(`Generated: ${fmt(meta.generated)}`);
+      }
+      return ts.join(' | ');
+    }
+
+    /**
+     * Drop breaks that bracket the schedule: keep a break only if it overlaps
+     * the panel window — its end is after the earliest panel start and its start
+     * is before the latest panel end. Avoids empty leading/trailing break rows in
+     * the printed grid (e.g. overnight/simulated breaks at a day's edges).
+     */
+    _stripBoundaryBreaks(events) {
+      let firstStart = '', lastEnd = '';
+      for (const e of events) {
+        if (this.state._isBreakEvent(e)) continue;
+        const start = e.startTime;
+        const end = e.endTime || e.startTime;
+        if (start && (firstStart === '' || start < firstStart)) firstStart = start;
+        if (end && end > lastEnd) lastEnd = end;
+      }
+      if (firstStart === '' || lastEnd === '') return events;
+      return events.filter(e => {
+        if (!this.state._isBreakEvent(e)) return true;
+        const bStart = e.startTime || '';
+        const bEnd = e.endTime || e.startTime || '';
+        return bEnd > firstStart && bStart < lastEnd;
+      });
+    }
+
     _doPrint(viewOverride = null) {
       const wasDay = this.state.activeDay;
       const printContainer = el('div', { className: 'cosam-calendar' });
@@ -3347,18 +3415,32 @@ import QRCode from 'qrcode';
       const viewToPrint = viewOverride || this.state.view;
 
       if (viewToPrint === 'grid') {
-        // Grid print: render each day as a table so <thead> repeats on page breaks
+        // Grid print: reuse the on-screen CSS Grid engine in print + fillPage
+        // mode (even 1fr time-unit rows that fill the page), one day per page.
+        // The grid's own footer row carries the generated/modified stamp (same
+        // as the web view). Mark the user's starred picks, but only when the
+        // schedule isn't already filtered to starred-only (where every panel
+        // would be starred and the marker is redundant).
+        printContainer.classList.add('cosam-print-grid-pages');
+        if (!this.state.filters.starredOnly) {
+          printContainer.classList.add('cosam-print-show-stars');
+        }
         for (const day of this.state.days) {
           this.state.activeDay = day.key;
-          const events = this.state.filteredEvents.call(this.state);
+          let events = this.state.filteredEvents.call(this.state);
           if (events.length === 0) continue;
+          // Drop breaks that bracket the day so the grid spans only the real
+          // panel window (no empty leading/trailing break rows).
+          events = this._stripBoundaryBreaks(events);
 
-          const dayLabel = el('div', { className: 'cosam-print-day-label' }, day.label);
-          printContainer.appendChild(dayLabel);
-          printContainer.appendChild(this._buildPrintGridTable(events));
+          const dayPage = el('div', { className: 'cosam-print-day-page' });
+          dayPage.appendChild(el('div', { className: 'cosam-print-day-label' }, day.label));
+          dayPage.appendChild(this._buildGridView(events, true, true));
+          printContainer.appendChild(dayPage);
         }
       } else {
-        // List print: all days as list sections
+        // List print: all days as list sections (the on-screen list renders
+        // cleanly in print; @media print hides interactive chrome).
         for (const day of this.state.days) {
           this.state.activeDay = day.key;
           const events = this.state.filteredEvents.call(this.state);
@@ -3423,7 +3505,7 @@ import QRCode from 'qrcode';
       // header/time backgrounds don't inherit the host color either. Scoped to
       // this print window, so the host page's own print is unaffected.
       printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Schedule</title>${styleTag}${inlineStyleHtml}<style>${allCSS}
-html,body{background:#fff!important;margin:0;}
+html,body{background:#fff!important;margin:0;height:100%;}
 .cosam-calendar{background:#fff!important;--cosam-page-bg:#fff;--cosam-widget-bg:#fff;}
 .cosam-event-desc{display:block!important;}</style></head><body>${printContainer.outerHTML}</body></html>`);
       printWin.document.close();
@@ -3612,6 +3694,17 @@ html,body{background:#fff!important;margin:0;}
         state.stickyOffsetSelector = opts.stickyOffsetSelector;
       }
       const renderer = new CalendarRenderer(rootEl, state);
+
+      // Optional print plugin. When registered, it owns the print action (and may
+      // contribute toolbar UI); without one, core runs its built-in simple print.
+      // This generalizes the Typst branch's `pdfExportHook`. Pass `null`/`false`
+      // to force the simple print explicitly.
+      if (opts.printPlugin) {
+        state._printPlugin = opts.printPlugin;
+        if (typeof opts.printPlugin.attach === 'function') {
+          opts.printPlugin.attach({ renderer, state });
+        }
+      }
 
       // Keep the sticky offset in sync with viewport changes.
       if (state.stickyOffset || state.stickyOffsetSelector) {

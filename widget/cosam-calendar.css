@@ -550,7 +550,6 @@
   gap: 4px;
   border-bottom: 2px solid var(--cosam-border);
   overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
   background: var(--cosam-bg);
   border-radius: var(--cosam-radius) var(--cosam-radius) 0 0;
   padding: 0 8px;
@@ -689,6 +688,7 @@
   cursor: pointer;
   background: var(--cosam-bg);
   transition: background 0.15s, border-color 0.15s;
+  -webkit-user-select: none;
   user-select: none;
   color: var(--cosam-text);
 }
@@ -1131,6 +1131,14 @@
   border-right: none;
 }
 
+/* Time column header cells - more specific selector to override base header-cell */
+.cosam-grid-time-header.cosam-grid-header-cell {
+  padding: 4px 0;
+  background: var(--cosam-grid-header-bg);
+  border-right: 1px solid var(--cosam-grid-border-soft);
+  border-bottom: 1px solid var(--cosam-grid-border-soft);
+}
+
 /* Day/date in the time-column corner of each day's header row: weekday over
    date, mirroring the room name / hotel room split. */
 .cosam-grid-time-header-day {
@@ -1153,24 +1161,26 @@
   opacity: 0.85;
 }
 
-.cosam-grid-time-header {
+/* Time column cells that are NOT header cells (scrolling time labels) */
+.cosam-grid-time-header:not(.cosam-grid-header-cell) {
   text-align: right;
-  padding: 0 !important;
+  padding: 0;
   min-width: 80px;
   width: 100%;
-  background: var(--cosam-grid-header-bg) !important;
+  background: var(--cosam-grid-header-bg);
+  color: var(--cosam-grid-header-text);
   z-index: 4;
-  border-right: 1px solid var(--cosam-grid-border-soft) !important;
-  border-bottom: 1px solid var(--cosam-grid-border-soft) !important;
+  border-right: 1px solid var(--cosam-grid-border-soft);
+  border-bottom: 1px solid var(--cosam-grid-border-soft);
 }
 
+/* Time column header cells - flex layout for day/date corner */
 .cosam-grid-time-header.cosam-grid-header-cell {
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   width: 100%;
-  padding: 4px 0 !important;
   /* Keep the sticky corner above scrolling time labels in the same column. */
   z-index: 25;
 }
@@ -1231,8 +1241,8 @@
 }
 
 .cosam-grid-time-half {
-  padding-top: 4px !important;
-  padding-bottom: 4px !important;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 .cosam-grid-event {
@@ -1245,7 +1255,7 @@
   border-left: 8px solid transparent;
   transition: all 0.2s ease;
   position: relative;
-  background: var(--cosam-event-bg) !important;
+  background: var(--cosam-event-bg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   z-index: 20;
 }
@@ -1486,18 +1496,8 @@
   color: var(--cosam-break-text);
 }
 
-/* Time column cells */
-.cosam-grid-time-header:not(.cosam-grid-header-cell) {
-  background: var(--cosam-grid-header-bg) !important;
-  border-right: 1px solid var(--cosam-grid-border-soft) !important;
-  border-bottom: 1px solid var(--cosam-grid-border-soft) !important;
-  font-weight: 500 !important;
-  color: var(--cosam-grid-header-text) !important;
-  z-index: 5;
-}
-
 /* Remove individual cell backgrounds - grid lines handle separation */
-.cosam-grid>div:not(.cosam-grid-header-cell):not(.cosam-grid-event):not(.cosam-grid-break):not(.cosam-sleep-break):not(.cosam-grid-row-line):not(.cosam-grid-col-line) {
+.cosam-grid>div:not(.cosam-grid-header-cell):not(.cosam-grid-time-header):not(.cosam-grid-event):not(.cosam-grid-break):not(.cosam-sleep-break):not(.cosam-grid-row-line):not(.cosam-grid-col-line) {
   background: transparent;
   border: none;
   margin: 0;
@@ -1655,7 +1655,7 @@
   }
 }
 
-/* Implicit overnight break styling */
+/* Implicit overnight break styling - must come after .cosam-grid-break to override */
 .cosam-implicit-overnight-break {
   --overnight-bg: linear-gradient(135deg, #3b4976, #2c3a5e, #3b4976);
   --overnight-border: #5a6a8a;
@@ -1664,12 +1664,12 @@
   --overnight-star-dim: rgba(255, 255, 255, 0.4);
   --overnight-star-bright: rgba(255, 255, 230, 1);
 
-  background: var(--overnight-bg) !important;
-  border: 1px solid var(--overnight-border) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+  background: var(--overnight-bg);
+  border: 1px solid var(--overnight-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   position: relative;
   overflow: hidden;
-  color: var(--overnight-text) !important;
+  color: var(--overnight-text);
 }
 
 .cosam-calendar[data-theme="dark"] .cosam-implicit-overnight-break {
@@ -1687,11 +1687,12 @@
   --overnight-star-bright: rgba(255, 255, 200, 1);
 }
 
+/* Nested text elements in overnight break inherit the overnight text color */
 .cosam-implicit-overnight-break .cosam-break-name,
 .cosam-implicit-overnight-break .cosam-break-desc,
 .cosam-implicit-overnight-break .cosam-break-meta,
 .cosam-implicit-overnight-break .cosam-grid-break-name {
-  color: var(--overnight-text) !important;
+  color: var(--overnight-text);
 }
 
 /* Star field layer 1 - smaller stars */
@@ -2575,7 +2576,10 @@ body.cosam-page-styled a:hover {
     display: block !important;
   }
 
-  /* ── Grid view: layout ── */
+  /* ── Common print grid (base for ANY printed grid) ──
+     The compact grey baseline shared by a direct Ctrl+P of the on-screen grid
+     AND the print button's grid. The `.cosam-print-grid` layer further down adds
+     the simple-print styling (theme colors, fill, readable font) on top. */
   .cosam-grid-view {
     overflow: visible !important;
   }
@@ -2717,6 +2721,174 @@ body.cosam-page-styled a:hover {
   /* Hide responsive overrides during print */
   .cosam-sleep-break {
     display: none;
+  }
+
+  /* ── Simple print grid (the print button's `.cosam-print-grid` output) ──
+     Layers over the common print grid above: readable font, theme header
+     colors, light bodies, and a page-filling grid with even 1fr time-unit rows.
+     Custom props fall back so it works without the advanced plugin's injection. */
+  .cosam-print-grid {
+    /* Readable print baseline; the advanced plugin can override per format. */
+    --cosam-print-grid-pt: 10px;
+  }
+
+  /* Fill the page so the even 1fr rows are evenly tall and the grid uses the
+     whole sheet (the height chain is set on html/body in the print window). */
+  .cosam-print-grid .cosam-grid {
+    height: 100%;
+    width: 100%;
+    font-size: var(--cosam-print-grid-pt, 10px);
+    gap: 0;
+    /* Empty slots are transparent and show this through. Force a fixed light
+       grey rather than the theme's --cosam-grid-bg, which is near-black in the
+       dark / high-contrast themes and would flood the print with ink. */
+    background: #f5f5f5;
+  }
+
+  /* Header + time column: the theme's own header band + header text, so each
+     theme prints legibly (default blue/white, light pale-blue/navy, etc.).
+     !important beats the base sticky-header background. */
+  .cosam-print-grid .cosam-grid-header-cell,
+  .cosam-print-grid .cosam-grid-time-header {
+    background: var(--cosam-print-header-bg, var(--cosam-grid-header-bg, #2a9ec7)) !important;
+    color: var(--cosam-grid-header-text, #fff) !important;
+    position: static;
+    /* drop sticky positioning in print */
+    border: 0.4pt solid var(--cosam-print-gridline-color, #d2d2d2);
+    padding: 2px 4px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Event / break cells: thin gridlines, no shadow, clip overflow. Compact
+     sizing (small font, no margin/min-height) so a dense day still fits one
+     page — the base cell sizing is tap-target sized and would overflow. */
+  .cosam-print-grid .cosam-grid-event,
+  .cosam-print-grid .cosam-grid-break {
+    border: 0.4pt solid var(--cosam-print-gridline-color, #d2d2d2);
+    border-left-width: 2.5pt;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 2px 3px;
+    margin: 0;
+    min-height: 0;
+    font-size: var(--cosam-print-grid-pt, 7px);
+    line-height: 1.2;
+    overflow: hidden;
+  }
+
+  /* Events on fixed white with dark text — the dark/high-contrast themes use
+     light text/backgrounds that would be invisible or ink-heavy in print. */
+  .cosam-print-grid .cosam-grid-event {
+    background: #fff !important;
+    color: #1a1a1a !important;
+  }
+
+  /* Breaks on the lighter grey, distinct from empty slots. */
+  .cosam-print-grid .cosam-grid-break {
+    background: #e8e8e8 !important;
+    color: #555 !important;
+  }
+
+  /* Interactive chrome and per-cell room (redundant under room columns). */
+  .cosam-print-grid .cosam-grid-event-actions,
+  .cosam-print-grid .cosam-grid-event-people,
+  .cosam-print-grid .cosam-grid-event-room {
+    display: none !important;
+  }
+
+  .cosam-print-grid .cosam-grid-event-name {
+    font-size: var(--cosam-print-grid-pt, 7px);
+    font-weight: 600;
+    word-break: break-word;
+  }
+
+  .cosam-print-grid .cosam-grid-event-credits {
+    font-size: var(--cosam-print-grid-pt, 7px);
+    font-style: italic;
+    margin-top: 0;
+    opacity: 0.85;
+    word-break: break-word;
+  }
+
+  .cosam-print-grid .cosam-grid-event-time {
+    font-size: var(--cosam-print-grid-pt, 7px);
+    opacity: 0.85;
+  }
+
+  /* The narrower print time column conflicts with the on-screen cell's
+     `min-width: 80px`; clear it so the cell honors the 60px track instead of
+     overflowing into the first room column. */
+  .cosam-print-grid .cosam-grid-time-header {
+    min-width: 0;
+  }
+
+  /* In-grid footer (generated/modified stamp): keep the on-screen blue band in
+     print instead of the generic grey print override, so it matches the web. */
+  .cosam-print-grid .cosam-grid-footer {
+    background: var(--cosam-footer-bg, #2a9ec7) !important;
+    border-top: 2px solid var(--cosam-grid-border, #40c8ed) !important;
+    color: var(--cosam-footer-text, #fff) !important;
+    padding: 4px 8px;
+  }
+
+  .cosam-print-grid .cosam-grid-footer-content {
+    opacity: 0.85;
+  }
+
+  /* ── Page fill: one day per page, grid fills the sheet ──
+     The print window sets html/body height:100%; each day page is a full-height
+     flex column (label on top, grid filling the rest) so the grid's even 1fr
+     rows divide the whole page. A genuinely over-full day is clipped rather than
+     spilling to a second page. */
+  .cosam-print-grid-pages {
+    height: 100%;
+  }
+
+  .cosam-print-day-page {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .cosam-print-day-page:first-child {
+    break-before: avoid;
+    page-break-before: avoid;
+  }
+
+  .cosam-print-day-page>.cosam-print-day-label {
+    break-before: avoid;
+    page-break-before: avoid;
+  }
+
+  .cosam-print-day-page>.cosam-print-grid {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ── Starred picks in the printed grid ──
+     The print button hides the interactive star by default; when printing the
+     full schedule (not filtered to starred-only) re-show it on the user's picks
+     plus a subtle outline, so the printout marks their selections. */
+  .cosam-print-show-stars .cosam-print-grid .cosam-grid-event.starred {
+    outline: 1pt solid var(--cosam-star, #f59e0b);
+    outline-offset: -1pt;
+  }
+
+  .cosam-print-show-stars .cosam-print-grid .cosam-grid-event.starred .cosam-grid-event-actions {
+    display: block !important;
+  }
+
+  .cosam-print-show-stars .cosam-print-grid .cosam-grid-event.starred .cosam-grid-event-star {
+    display: inline-block !important;
+    color: var(--cosam-star, #f59e0b);
+  }
+
+  .cosam-print-show-stars .cosam-print-grid .cosam-grid-event.starred .cosam-grid-event-people {
+    display: none !important;
   }
 }
 
