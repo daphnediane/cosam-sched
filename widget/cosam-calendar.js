@@ -3415,7 +3415,16 @@ import QRCode from 'qrcode';
         catch (e) { return ''; }
       }).join('\n');
 
+      // Force a white page in the print window. We copy the host page's full CSS
+      // above (so themed widget colors carry over), which also drags in the
+      // host/template body background; with the browser's "Background graphics"
+      // option on, that bleeds behind the schedule. These resets come after
+      // ${allCSS} so they win, and reset the detected page-bg vars so themed
+      // header/time backgrounds don't inherit the host color either. Scoped to
+      // this print window, so the host page's own print is unaffected.
       printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Schedule</title>${styleTag}${inlineStyleHtml}<style>${allCSS}
+html,body{background:#fff!important;margin:0;}
+.cosam-calendar{background:#fff!important;--cosam-page-bg:#fff;--cosam-widget-bg:#fff;}
 .cosam-event-desc{display:block!important;}</style></head><body>${printContainer.outerHTML}</body></html>`);
       printWin.document.close();
       printWin.focus();
