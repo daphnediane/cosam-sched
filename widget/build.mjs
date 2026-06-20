@@ -31,7 +31,7 @@ const jsOptions = {
 
 // Loader files: plain scripts that extend window.CosAmCalendar.
 // Built as IIFE so esbuild can minify; no npm imports.
-const loaderNames = ['load-json-embed', 'load-html-embed', 'load-data-url'];
+const loaderNames = ['load-json-embed', 'load-html-embed', 'load-data-url', 'load-config-url'];
 const loaderOptionsList = loaderNames.map(name => /** @type {esbuild.BuildOptions} */({
   entryPoints: [`widget/${name}.js`],
   bundle: true,

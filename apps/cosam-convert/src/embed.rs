@@ -213,6 +213,7 @@ fn compress_and_encode(json_data: &str) -> Result<String> {
 /// The result can be pasted into a Squarespace Code Block or any raw-HTML page.
 pub fn generate_embed_html(
     json_data: &str,
+    config: Option<&ScheduleConfig>,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
@@ -223,6 +224,13 @@ pub fn generate_embed_html(
         None => "",
     };
     let encoded_data = compress_and_encode(json_data)?;
+    // Optional presentation config (branding + print-format defaults), emitted as
+    // its own ScheduleConfig <script> the default EmbeddedConfigLoader reads.
+    // Absent when no brand/widget config is available.
+    let config_html = match config {
+        Some(cfg) => static_html::generate_config_html(cfg)?,
+        None => String::new(),
+    };
     let json_loader = BUILTIN_JSON_EMBED_LOADER;
     let raw = format!(
         r#"{COPYRIGHT_COMMENT}
@@ -230,6 +238,7 @@ pub fn generate_embed_html(
 {css}
 </style>
 <div id="cosam-calendar-root"><p style="padding:40px 20px;text-align:center">Schedule failed to load. Please enable JavaScript and reload the page.</p></div>
+{config_html}
 <script type="application/json" id="cosam-schedule-data">
 {encoded_data}
 </script>
@@ -266,12 +275,13 @@ pub fn generate_embed_html(
 /// The template must contain `{WIDGET_BLOCK}` and `{TITLE}` placeholders.
 pub fn generate_test_html(
     json_data: &str,
+    config: Option<&ScheduleConfig>,
     title: &str,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<String> {
-    let embed_block = generate_embed_html(json_data, sources, false, style_page)?;
+    let embed_block = generate_embed_html(json_data, config, sources, false, style_page)?;
 
     let raw = sources
         .template
@@ -293,6 +303,7 @@ pub fn generate_test_html(
 /// semantic `<article>` elements (panels). All CSS, JS, and data are inlined.
 pub fn generate_embed_html_widget_html(
     export: &WidgetExport,
+    config: Option<&ScheduleConfig>,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
@@ -303,6 +314,13 @@ pub fn generate_embed_html_widget_html(
         None => "",
     };
     let schedule_html = static_html::generate_static_schedule_html(export)?;
+    // Optional presentation config (branding + print-format defaults), emitted as
+    // its own ScheduleConfig <script> so the embedded widget can match the
+    // printed house style. Absent when no brand/widget config is available.
+    let config_html = match config {
+        Some(cfg) => static_html::generate_config_html(cfg)?,
+        None => String::new(),
+    };
     let html_loader = BUILTIN_HTML_EMBED_LOADER;
     let raw = format!(
         r#"{COPYRIGHT_COMMENT}
@@ -310,6 +328,7 @@ pub fn generate_embed_html_widget_html(
 {css}
 </style>
 <div id="cosam-calendar-root"></div>
+{config_html}
 {schedule_html}
 <script>
 // CosAm Calendar Widget - Embeddable Version
@@ -343,12 +362,13 @@ pub fn generate_embed_html_widget_html(
 /// The template must contain `{WIDGET_BLOCK}` and `{TITLE}` placeholders.
 pub fn generate_test_html_widget_html(
     export: &WidgetExport,
+    config: Option<&ScheduleConfig>,
     title: &str,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<String> {
-    let embed_block = generate_embed_html_widget_html(export, sources, false, style_page)?;
+    let embed_block = generate_embed_html_widget_html(export, config, sources, false, style_page)?;
 
     let raw = sources
         .template
@@ -470,7 +490,6 @@ pub fn generate_embed_head_widget_html(
 </style>
 {config_html}
 <script>
-<script>
 // CosAm Calendar Widget - Engine (site-wide Code Injection: Header)
 // Copyright (c) 2026 Daphne Pfister
 // SPDX-License-Identifier: BSD-2-Clause
@@ -524,6 +543,7 @@ pub fn generate_embed_body_widget_html(export: &WidgetExport, minified: bool) ->
 
 /// Generate the head engine snippet for the gzip+base64 JSON format.
 pub fn generate_embed_head_json(
+    config: Option<&ScheduleConfig>,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
@@ -533,12 +553,19 @@ pub fn generate_embed_head_json(
         Some(false) => "\n            stylePageBody: false,",
         None => "",
     };
+    // Presentation config (branding + print-format defaults) ships in the head
+    // engine so the resident widget has it before page content arrives.
+    let config_html = match config {
+        Some(cfg) => static_html::generate_config_html(cfg)?,
+        None => String::new(),
+    };
     let json_loader = BUILTIN_JSON_EMBED_LOADER;
     let raw = format!(
         r#"{COPYRIGHT_COMMENT}
 <style>
 {css}
 </style>
+{config_html}
 <script>
 // CosAm Calendar Widget - Engine (site-wide Code Injection: Header)
 // Copyright (c) 2026 Daphne Pfister
@@ -594,46 +621,50 @@ pub fn generate_embed_body_json(json_data: &str, minified: bool) -> Result<Strin
 pub fn write_embed_html(
     path: &Path,
     json_data: &str,
+    config: Option<&ScheduleConfig>,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<()> {
-    let html = generate_embed_html(json_data, sources, minified, style_page)?;
+    let html = generate_embed_html(json_data, config, sources, minified, style_page)?;
     write_html_file(path, &html, "embed HTML")
 }
 
 pub fn write_test_html(
     path: &Path,
     json_data: &str,
+    config: Option<&ScheduleConfig>,
     title: &str,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<()> {
-    let html = generate_test_html(json_data, title, sources, minified, style_page)?;
+    let html = generate_test_html(json_data, config, title, sources, minified, style_page)?;
     write_html_file(path, &html, "test HTML")
 }
 
 pub fn write_embed_html_widget_html(
     path: &Path,
     export: &WidgetExport,
+    config: Option<&ScheduleConfig>,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<()> {
-    let html = generate_embed_html_widget_html(export, sources, minified, style_page)?;
+    let html = generate_embed_html_widget_html(export, config, sources, minified, style_page)?;
     write_html_file(path, &html, "embed HTML (widget-html)")
 }
 
 pub fn write_test_html_widget_html(
     path: &Path,
     export: &WidgetExport,
+    config: Option<&ScheduleConfig>,
     title: &str,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<()> {
-    let html = generate_test_html_widget_html(export, title, sources, minified, style_page)?;
+    let html = generate_test_html_widget_html(export, config, title, sources, minified, style_page)?;
     write_html_file(path, &html, "test HTML (widget-html)")
 }
 
@@ -659,11 +690,12 @@ pub fn write_embed_body_widget_html(
 
 pub fn write_embed_head_json(
     path: &Path,
+    config: Option<&ScheduleConfig>,
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<()> {
-    let html = generate_embed_head_json(sources, minified, style_page)?;
+    let html = generate_embed_head_json(config, sources, minified, style_page)?;
     write_html_file(path, &html, "embed head engine (json)")
 }
 

@@ -3555,6 +3555,35 @@ import QRCode from 'qrcode';
   }
 
   window.CosAmCalendar = {
+    /**
+     * Built-in config loader: reads presentation config (branding +
+     * print-format defaults) from an embedded
+     * `<script id="cosam-config-data" data-cosam="config">` element holding a
+     * ScheduleConfig. This is the default `configLoader` for {@link init}, so
+     * any schedule loader picks up an embedded config element automatically; it
+     * resolves to `null` when the element is absent or malformed, leaving
+     * non-branded embeds unaffected.
+     * @param {object} [opts]
+     * @param {string} [opts.configId='cosam-config-data'] - ID of the config script element.
+     */
+    EmbeddedConfigLoader: function (opts) {
+      var configId = (opts && opts.configId) || 'cosam-config-data';
+      return {
+        load: function () {
+          var el = document.getElementById(configId);
+          if (!el || el.getAttribute('data-cosam') !== 'config') {
+            return Promise.resolve(null);
+          }
+          try {
+            var cfg = JSON.parse(el.textContent.trim());
+            return Promise.resolve({ brand: cfg.brand, printFormats: cfg.printFormats });
+          } catch (e) {
+            return Promise.resolve(null);
+          }
+        },
+      };
+    },
+
     init: function (opts) {
       const rootEl = typeof opts.el === 'string' ? document.querySelector(opts.el) : opts.el;
       if (!rootEl) { console.error('CosAmCalendar: element not found:', opts.el); return; }
@@ -3597,9 +3626,32 @@ import QRCode from 'qrcode';
       }
 
       if (opts.loader) {
+        // Presentation config (branding + print-format defaults) loads through a
+        // separate, optional hook so config delivery is independent of schedule
+        // delivery (e.g. embedded config + a data-url schedule). Defaults to the
+        // built-in EmbeddedConfigLoader; pass `null`/`false` to disable. Config
+        // loading is non-fatal — branding is additive, so a failure resolves to
+        // null and the schedule still renders.
+        const configLoader = opts.configLoader === undefined
+          ? window.CosAmCalendar.EmbeddedConfigLoader()
+          : opts.configLoader;
+        const loadConfig = () => {
+          if (!configLoader || typeof configLoader.load !== 'function') {
+            return Promise.resolve(null);
+          }
+          return Promise.resolve()
+            .then(() => configLoader.load(rootEl))
+            .catch(() => null);
+        };
         const doLoad = () => {
-          opts.loader.load(rootEl)
-            .then(data => applyData(data, state, renderer, rootEl))
+          Promise.all([opts.loader.load(rootEl), loadConfig()])
+            .then(([data, config]) => {
+              if (config) {
+                if (config.brand) data.brand = config.brand;
+                if (config.printFormats) data.printFormats = config.printFormats;
+              }
+              applyData(data, state, renderer, rootEl);
+            })
             .catch(err => {
               state._loadStatus = 'error';
               state._loadError = err.message;

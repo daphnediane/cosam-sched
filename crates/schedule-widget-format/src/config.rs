@@ -133,6 +133,12 @@ pub struct SchedulePrintFormat {
     pub cards: bool,
     /// `"all"`, `"workshops"`, or `"premium"`.
     pub panel_filter: String,
+    /// `"none"`, `"day"`, `"half_day"`, or `"timeline"`.
+    #[serde(default)]
+    pub time_split: String,
+    /// `"none"`, `"room"`, or `"presenter"`.
+    #[serde(default)]
+    pub section_split: String,
     /// Per-role brand font references (each names a `brand.fonts` role or "").
     #[serde(default)]
     pub fonts: SchedulePrintFonts,

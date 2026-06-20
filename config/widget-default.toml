@@ -19,52 +19,67 @@
 #   page_fill     page background CSS color (e.g. "#f7f7f7"); empty = white
 #   cards         true = render descriptions as bordered cards
 #   panel_filter  "all" (default) | "workshops" | "premium"
+#   time_split    "none" (default) | "day" | "half_day" | "timeline"
+#   section_split "none" (default) | "room" | "presenter"
 #   brand_fonts   true = use brand web fonts for all four roles
 #   base_font_pt / grid_font_pt / banner_text_pt   point-size overrides
 #
 #   [print_formats.fonts] per-role brand font references (override brand_fonts):
 #     heading / banner / subheading / body = "<role>" or "" for the system font
 
+# Grid plus descriptions together — default layout (matches layout.toml presets.flyer).
+[[print_formats]]
+name = "Default (Grid + Details)"
+content = "both"
+time_split = "day"
+columns = 4
+orientation = "landscape"
+logo = "brand"
+footer = "full"
+brand_fonts = true
+base_font_pt = "6.0pt"
+grid_font_pt = "5.4pt"
+
 # Room/time grid — the classic at-a-glance schedule.
 [[print_formats]]
 name = "Schedule Grid"
 content = "grid_only"
 color_mode = "color"
+time_split = "day"
+orientation = "landscape"
 logo = "brand"
 footer = "full"
 brand_fonts = true
+base_font_pt = "6.0pt"
+grid_font_pt = "5.4pt"
 
 # Full panel descriptions in columns, as bordered cards.
 [[print_formats]]
 name = "Panel Descriptions"
 content = "description_only"
-columns = 2
+time_split = "day"
+columns = 4
 cards = true
 page_fill = "#f7f7f7"
+orientation = "landscape"
 logo = "brand"
 footer = "full"
 brand_fonts = true
+base_font_pt = "6.0pt"
 
 # Workshops only — a handout for the workshop track.
 [[print_formats]]
 name = "Workshop Handout"
 content = "description_only"
 panel_filter = "workshops"
-columns = 2
+columns = 4
 cards = true
 header_text = "Workshops"
+orientation = "landscape"
 logo = "brand"
 footer = "timestamp_only"
 brand_fonts = true
-
-# Grid plus descriptions together — a one-stop flyer.
-[[print_formats]]
-name = "Flyer (Grid + Details)"
-content = "both"
-columns = 2
-logo = "brand"
-footer = "full"
-brand_fonts = true
+base_font_pt = "6.0pt"
 
 # Compact, ink-light list for black-and-white printers.
 [[print_formats]]

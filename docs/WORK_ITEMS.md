@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Thu Jun 18 23:28:20 2026
+Updated on: Fri Jun 19 21:18:18 2026
 
 ## Completed
 
@@ -430,7 +430,7 @@ Applies to **Panel, Timeline, and Break**.
 
 ### [FEATURE-151] FEATURE-151: Brand bridge and widget print formats
 
-**Status:** Open
+**Status:** In progress
 
 **Priority:** Medium
 
@@ -452,7 +452,6 @@ SemiBold 600). On-screen widget fonts are out of scope.
 
 ---
 
-<<<<<<< HEAD
 ### [FEATURE-152] FEATURE-152: WASM Typst PDF export plugin for the widget
 
 **Status:** Open
@@ -486,6 +485,7 @@ This is explicitly a **rough first pass**: prove the pipeline end-to-end
 gaps, and iterate afterward.
 
 ---
+
 ### [FEATURE-026] Multi-Year Schedule Archive Support
 
 **Status:** Open
@@ -892,10 +892,7 @@ trait and unified `name` (all seven name-bearing entities), `description` /
 [FEATURE-146]: ../work-item/open/2-MEDIUM/FEATURE-146.md
 [FEATURE-150]: ../work-item/closed/done/FEATURE-150.md
 [FEATURE-151]: ../work-item/open/2-MEDIUM/FEATURE-151.md
-<<<<<<< HEAD
 [FEATURE-152]: ../work-item/open/2-MEDIUM/FEATURE-152.md
-=======
->>>>>>> 29eeb8a (feat: Bridge brand assets and print formats to the widget [FEATURE-151])
 [META-001]: ../work-item/meta/META-001.md
 [META-002]: ../work-item/closed/done/META-002.md
 [META-003]: ../work-item/closed/done/META-003.md

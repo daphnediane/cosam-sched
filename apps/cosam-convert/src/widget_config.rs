@@ -50,6 +50,8 @@ struct RawPrintFormat {
     page_fill: String,
     cards: bool,
     panel_filter: String,
+    time_split: String,
+    section_split: String,
     /// When true, apply brand fonts to all four roles (each role → its own name).
     /// Individual `[print_formats.fonts]` entries still override.
     brand_fonts: bool,
@@ -137,6 +139,8 @@ fn into_widget(r: RawPrintFormat) -> SchedulePrintFormat {
         page_fill: r.page_fill,
         cards: r.cards,
         panel_filter: normalize_filter(&r.panel_filter),
+        time_split: normalize_time_split(&r.time_split),
+        section_split: normalize_section_split(&r.section_split),
         fonts,
         font_sizes: SchedulePrintFontSizes {
             base: r.base_font_pt,
@@ -186,6 +190,29 @@ fn normalize_filter(s: &str) -> String {
     .to_string()
 }
 
+/// Map time-split aliases to the widget value (`none` | `day` | `half_day` |
+/// `timeline`). Empty maps to `none`; unknown values pass through unchanged
+/// (the widget's `_coercePrintFormat` is the validation authority and falls
+/// back to `none`), mirroring [`normalize_content`].
+fn normalize_time_split(s: &str) -> String {
+    match s {
+        "" | "none" => "none",
+        "halfDay" => "half_day",
+        other => other,
+    }
+    .to_string()
+}
+
+/// Map section-split aliases to the widget value (`none` | `room` |
+/// `presenter`). Empty maps to `none`; unknown values pass through unchanged.
+fn normalize_section_split(s: &str) -> String {
+    match s {
+        "" => "none",
+        other => other,
+    }
+    .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +236,48 @@ mod tests {
         assert_eq!(normalize_color("bw"), "bw");
         assert_eq!(normalize_color("anything"), "color");
         assert_eq!(normalize_filter("workshops"), "workshops");
+    }
+
+    #[test]
+    fn test_split_normalization() {
+        assert_eq!(normalize_time_split(""), "none");
+        assert_eq!(normalize_time_split("none"), "none");
+        assert_eq!(normalize_time_split("day"), "day");
+        assert_eq!(normalize_time_split("half_day"), "half_day");
+        assert_eq!(normalize_time_split("halfDay"), "half_day");
+        assert_eq!(normalize_time_split("timeline"), "timeline");
+        // Unknown values pass through (widget validates and falls back to none).
+        assert_eq!(normalize_time_split("future_mode"), "future_mode");
+
+        assert_eq!(normalize_section_split(""), "none");
+        assert_eq!(normalize_section_split("room"), "room");
+        assert_eq!(normalize_section_split("presenter"), "presenter");
+    }
+
+    #[test]
+    fn test_time_split_round_trips_through_parse() {
+        let toml = "\
+            [[print_formats]]\n\
+            name = \"Grid\"\n\
+            content = \"grid_only\"\n\
+            time_split = \"half_day\"\n\
+            section_split = \"room\"\n";
+        let formats = parse(toml).expect("valid");
+        assert_eq!(formats[0].time_split, "half_day");
+        assert_eq!(formats[0].section_split, "room");
+    }
+
+    #[test]
+    fn test_unknown_toml_fields_are_ignored() {
+        // widget.toml intentionally shares layout.toml-style keys; ones that do
+        // not apply to browser print (e.g. `orientation`) are silently dropped.
+        let toml = "\
+            [[print_formats]]\n\
+            name = \"Grid\"\n\
+            content = \"grid_only\"\n\
+            orientation = \"landscape\"\n";
+        let formats = parse(toml).expect("unknown keys ignored, not an error");
+        assert_eq!(formats[0].name, "Grid");
     }
 
     #[test]

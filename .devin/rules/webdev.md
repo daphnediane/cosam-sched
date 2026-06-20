@@ -46,6 +46,7 @@ npm run serve   # localhost:8000
 
 - Scope all styles under `.cosam-calendar`
 - Mobile-first, semantic class names, CSS Grid
+- **Prefer CSS Grid over HTML tables** for layout
 - Print-friendly `@media print` styles, WCAG contrast
 
 ## Testing

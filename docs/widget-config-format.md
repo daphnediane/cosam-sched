@@ -45,12 +45,12 @@ config is available.
 
 ### Brand Colors
 
-| Field      | Type   | Description              |
-| ---------- | ------ | ------------------------ |
-| `primary`  | string | Primary brand color.     |
-| `black`    | string | Black color.             |
-| `darkGrey` | string | Dark grey color.         |
-| `white`    | string | White color.             |
+| Field      | Type   | Description          |
+| ---------- | ------ | -------------------- |
+| `primary`  | string | Primary brand color. |
+| `black`    | string | Black color.         |
+| `darkGrey` | string | Dark grey color.     |
+| `white`    | string | White color.         |
 
 ### Brand Logos
 
@@ -65,20 +65,20 @@ Common aliases include `brand` (main logo) and `small` (compact version).
 
 A web-equivalent print font for a specific role.
 
-| Field      | Type   | Description                                                                 |
-| ---------- | ------ | --------------------------------------------------------------------------- |
-| `role`     | string | Font role: `heading`, `banner`, `subheading`, or `body`.                    |
-| `family`   | string | CSS font-family to apply.                                                   |
-| `weight`   | string | Optional font weight (e.g., `600`).                                          |
-| `style`    | string | Optional font style (e.g., `italic`).                                       |
-| `googleUrl`| string | Optional Google Fonts stylesheet URL the print window loads via `<link>`.   |
+| Field       | Type   | Description                                                               |
+| ----------- | ------ | ------------------------------------------------------------------------- |
+| `role`      | string | Font role: `heading`, `banner`, `subheading`, or `body`.                  |
+| `family`    | string | CSS font-family to apply.                                                 |
+| `weight`    | string | Optional font weight (e.g., `600`).                                       |
+| `style`     | string | Optional font style (e.g., `italic`).                                     |
+| `googleUrl` | string | Optional Google Fonts stylesheet URL the print window loads via `<link>`. |
 
 ### Brand Meta
 
-| Field    | Type   | Description                    |
-| -------- | ------ | ------------------------------ |
-| `name`   | string | Event or organization name.    |
-| `siteUrl`| string | Event website URL.             |
+| Field     | Type   | Description                 |
+| --------- | ------ | --------------------------- |
+| `name`    | string | Event or organization name. |
+| `siteUrl` | string | Event website URL.          |
 
 ### Brand Example
 
@@ -116,21 +116,23 @@ dropdown, authored in `config/widget-default.toml` (override:
 `config/widget.toml`). Each references brand by alias (`logo`) and role
 (`fonts.*`). Empty-string fields mean "use the widget default".
 
-| Field         | Type   | Values                                                               |
-| ------------- | ------ | -------------------------------------------------------------------- |
-| `name`        | string | Display name (unique).                                               |
-| `contentMode` | string | `both` \| `gridOnly` \| `descriptionOnly` \| `panelList`.            |
-| `colorMode`   | string | `color` \| `bw`.                                                     |
-| `columns`     | number | `0` = per-mode auto; `1`–`6` override.                               |
-| `headerText`  | string | Print header band text.                                              |
-| `footerText`  | string | Extra footer text.                                                   |
-| `footerMode`  | string | `full` \| `timestamp` \| `none`.                                     |
-| `logo`        | string | Brand logo alias or `none`.                                          |
-| `pageFill`    | string | CSS color; empty = white.                                            |
-| `cards`       | bool   | Render descriptions as bordered cards.                               |
-| `panelFilter` | string | `all` \| `workshops` \| `premium`.                                   |
-| `fonts`       | Object | `heading`/`banner`/`subheading`/`body` → a `brand.fonts` role or "". |
-| `fontSizes`   | Object | `base`/`grid`/`banner` point sizes (e.g. `"9pt"`) or "".             |
+| Field          | Type   | Values                                                                                                              |
+| -------------- | ------ | ------------------------------------------------------------------------------------------------------------------- |
+| `name`         | string | Display name (unique).                                                                                              |
+| `contentMode`  | string | `both` \| `gridOnly` \| `descriptionOnly` \| `panelList`.                                                           |
+| `colorMode`    | string | `color` \| `bw`.                                                                                                    |
+| `columns`      | number | `0` = per-mode auto; `1`–`6` override.                                                                              |
+| `headerText`   | string | Print header band text.                                                                                             |
+| `footerText`   | string | Extra footer text.                                                                                                  |
+| `footerMode`   | string | `full` \| `timestamp` \| `none`.                                                                                    |
+| `logo`         | string | Brand logo alias or `none`.                                                                                         |
+| `pageFill`     | string | CSS color; empty = white.                                                                                           |
+| `cards`        | bool   | Render descriptions as bordered cards.                                                                              |
+| `panelFilter`  | string | `all` \| `workshops` \| `premium`.                                                                                  |
+| `timeSplit`    | string | `none` \| `day` \| `half_day` \| `timeline`. Splits the grid and descriptions into per-day / per-half-day sections. |
+| `sectionSplit` | string | `none` \| `room` \| `presenter`.                                                                                    |
+| `fonts`        | Object | `heading`/`banner`/`subheading`/`body` → a `brand.fonts` role or "".                                                |
+| `fontSizes`    | Object | `base`/`grid`/`banner` point sizes (e.g. `"9pt"`) or "".                                                            |
 
 ### Content Mode
 
@@ -169,23 +171,23 @@ Controls which panels are included:
 Object mapping font roles to brand font role references. Each value is a role key
 into `brand.fonts` (e.g., `heading`) or an empty string to use the widget default.
 
-| Field        | Type   | Description                    |
-| ------------ | ------ | ------------------------------ |
-| `heading`    | string | Heading font role reference.   |
-| `banner`     | string | Banner font role reference.    |
-| `subheading` | string | Subheading font role reference.|
-| `body`       | string | Body font role reference.      |
+| Field        | Type   | Description                     |
+| ------------ | ------ | ------------------------------- |
+| `heading`    | string | Heading font role reference.    |
+| `banner`     | string | Banner font role reference.     |
+| `subheading` | string | Subheading font role reference. |
+| `body`       | string | Body font role reference.       |
 
 ### Print Font Sizes
 
 Object mapping font roles to point size overrides. Each value is a CSS point size
 (e.g., `9pt`) or an empty string to use the widget default.
 
-| Field  | Type   | Description                |
-| ------ | ------ | -------------------------- |
-| `base` | string | Base font size.            |
-| `grid` | string | Grid font size.            |
-| `banner`| string | Banner font size.          |
+| Field    | Type   | Description       |
+| -------- | ------ | ----------------- |
+| `base`   | string | Base font size.   |
+| `grid`   | string | Grid font size.   |
+| `banner` | string | Banner font size. |
 
 ### Print Format Example
 

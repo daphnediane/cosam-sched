@@ -1078,6 +1078,7 @@ fn main() {
                         OutputType::ExportEmbed => embed::write_embed_html_widget_html(
                             &job.path,
                             &widget,
+                            config.as_ref(),
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
@@ -1097,6 +1098,7 @@ fn main() {
                         OutputType::ExportTest => embed::write_test_html_widget_html(
                             &job.path,
                             &widget,
+                            config.as_ref(),
                             &effective_title,
                             &sources,
                             job.settings.minified,
@@ -1114,12 +1116,14 @@ fn main() {
                         OutputType::ExportEmbed => embed::write_embed_html(
                             &job.path,
                             &json_data,
+                            config.as_ref(),
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
                         ),
                         OutputType::ExportEmbedHead => embed::write_embed_head_json(
                             &job.path,
+                            config.as_ref(),
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
@@ -1132,6 +1136,7 @@ fn main() {
                         OutputType::ExportTest => embed::write_test_html(
                             &job.path,
                             &json_data,
+                            config.as_ref(),
                             &effective_title,
                             &sources,
                             job.settings.minified,
