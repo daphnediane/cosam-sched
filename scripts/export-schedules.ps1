@@ -164,6 +164,7 @@ try {
             "--export-embed-head", $embedHead,
             "--export-embed-body", $embedBody,
             "--export-test", $testHtml,
+            "--show-even-grid-switch",
             "--style-page",
             "--export-embed", $styleEmbed,
             "--export-test", $stylePage

@@ -30,6 +30,7 @@ import QRCode from 'qrcode';
     people: '<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
     chevronDown: '<svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>',
     clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    theme: '<svg viewBox="0 0 24 24"><g transform="translate(0.8, 1.9) scale(0.92)"><path d="M19.93,2.94C16.93.1,12.26-.71,8.43.64,4.91,1.77,1.7,4.75.59,8.32c-1.77,4.94.53,11.3,6.16,11.83,1.96.31,4.91.07,6.26-.89,2.39-1.32-.54-4.59,1.82-5.66l.12-.04c1.71-.53,4.05.18,5.56-1.07,2.94-2.36,2.02-7.25-.58-9.55ZM4,8.79c0-.94.76-1.7,1.7-1.7s1.71.76,1.71,1.7-.76,1.71-1.71,1.71-1.7-.77-1.7-1.71ZM7.64,17.01c-.94,0-1.7-.77-1.7-1.71s.76-1.7,1.7-1.7,1.7.76,1.7,1.7-.76,1.71-1.7,1.71ZM11.16,5.64c-.94,0-1.7-.76-1.7-1.71s.76-1.7,1.7-1.7,1.71.76,1.71,1.7-.76,1.71-1.71,1.71ZM17.31,9.14c-.95,0-1.71-.76-1.71-1.7s.76-1.71,1.71-1.71,1.7.77,1.7,1.71-.76,1.7-1.7,1.7Z"/></g></svg>',
     mappin: '<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
     calendar: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
     question: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
@@ -460,6 +461,9 @@ import QRCode from 'qrcode';
     constructor() {
       this.view = 'list'; // 'list' or 'grid'
       this.theme = 'cosam';
+      this.largeType = false; // large text mode
+      this.printLayout = 'default'; // 'default', 'grid', 'list'
+      this.printColor = 'color'; // 'color', 'bw'
       this.activeDay = null;
       this.days = [];
       // Named schedules: { scheduleName: Set<eventId> }
@@ -485,6 +489,8 @@ import QRCode from 'qrcode';
       this.stylePageBody = false;
       // Grid view: show even time grid lines (regular time-unit rows between events)
       this.evenTimeGrid = false;
+      // Show the even grid toggle button in the toolbar (for testing print layouts)
+      this.showEvenGridSwitch = false;
       // Sticky-header top offset config (see CosAmCalendar.init).
       this.stickyOffset = 0;
       this.stickyOffsetSelector = null;
@@ -521,6 +527,9 @@ import QRCode from 'qrcode';
           if (saved.activeDay !== undefined) this.activeDay = saved.activeDay;
           if (saved.filtersOpen !== undefined) this.filtersOpen = saved.filtersOpen;
           if (saved.evenTimeGrid !== undefined) this.evenTimeGrid = saved.evenTimeGrid;
+          if (saved.largeType !== undefined) this.largeType = saved.largeType;
+          if (saved.printLayout) this.printLayout = saved.printLayout;
+          if (saved.printColor) this.printColor = saved.printColor;
 
           // Load named schedules (new format), or migrate from single starred array
           if (saved.schedules && typeof saved.schedules === 'object' && !Array.isArray(saved.schedules)) {
@@ -582,6 +591,9 @@ import QRCode from 'qrcode';
           activeDay: this.activeDay,
           filtersOpen: this.filtersOpen,
           evenTimeGrid: this.evenTimeGrid,
+          largeType: this.largeType,
+          printLayout: this.printLayout,
+          printColor: this.printColor,
           activeScheduleName: this.activeScheduleName,
           schedules: schedulesObj,
           filters: {
@@ -914,9 +926,26 @@ import QRCode from 'qrcode';
       this.state = state;
       this._filtersId = 'cosam-filters-panel';
       this._eventsRegionId = 'cosam-events-region';
-      this.root.classList.add('cosam-calendar');
+      // .cosam-screen marks the live widget so screen-only rules (responsive
+      // collapse, hover, sticky) can target it positively, mirroring the print
+      // container's .cosam-print marker.
+      this.root.classList.add('cosam-calendar', 'cosam-screen');
       this.root.setAttribute('role', 'region');
       this.root.setAttribute('aria-label', 'Cosplay America schedule');
+
+      // Intercept Ctrl/Cmd-P so the browser prints our purpose-built print DOM
+      // (day pages, page-fill grid) via _doPrint instead of the on-screen
+      // widget. Only when data is loaded; otherwise let the browser print
+      // normally. The print DOM is built in a separate window, so no @media
+      // print rules are needed on the widget itself.
+      this._onPrintShortcut = (e) => {
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'p' || e.key === 'P')) {
+          if (!this.state.data) return;
+          e.preventDefault();
+          this._doPrint();
+        }
+      };
+      window.addEventListener('keydown', this._onPrintShortcut);
     }
 
     render() {
@@ -938,6 +967,11 @@ import QRCode from 'qrcode';
       }
       const theme = this.state.theme || 'cosam';
       this.root.setAttribute('data-theme', theme);
+      if (this.state.largeType) {
+        this.root.classList.add('cosam-large-type');
+      } else {
+        this.root.classList.remove('cosam-large-type');
+      }
       this._applyPageStyling(theme);
       this._applyHeaderPageColor(theme);
       this._applyStickyOffset();
@@ -1059,10 +1093,10 @@ import QRCode from 'qrcode';
       return parseFloat(parts[3]) >= 0.999;
     }
 
-    _panelTypeClass(panelTypeUid) {
+    _panelTypeClass(panelTypeUid, prefix = 'cosam-') {
       if (!panelTypeUid) return '';
       const slug = String(panelTypeUid).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-      return slug ? 'cosam-panel-type-' + slug : '';
+      return slug ? prefix + 'panel-type-' + slug : '';
     }
 
     _normalizeDataModel(data) {
@@ -1178,12 +1212,12 @@ import QRCode from 'qrcode';
       const panelTypes = this.state.data && this.state.data.panelTypes;
       if (!Array.isArray(panelTypes) || panelTypes.length === 0) return;
 
-      // Store panel type colors for direct application
+      // Store panel type colors for direct application (key by slug, not full class)
       this._panelTypeColors = new Map();
       for (const pt of panelTypes) {
-        const cls = this._panelTypeClass(pt.uid);
-        if (!cls || !pt.color) continue;
-        this._panelTypeColors.set(cls, pt.color);
+        const slug = String(pt.uid).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        if (!slug || !pt.color) continue;
+        this._panelTypeColors.set(slug, pt.color);
       }
 
       // Apply styles to existing color bars
@@ -1193,24 +1227,33 @@ import QRCode from 'qrcode';
     _updateColorBarStyles() {
       if (!this._panelTypeColors) return;
 
-      // Update list view color bars
-      const colorBars = this.root.querySelectorAll('.cosam-event-color-bar');
-      for (const bar of colorBars) {
-        for (const [cls, color] of this._panelTypeColors) {
-          if (bar.classList.contains(cls)) {
-            bar.style.backgroundColor = color;
-            break;
+      // Helper to extract slug from panel-type class
+      const getSlugFromClass = (el, prefix) => {
+        for (const cls of el.classList) {
+          const match = cls.match(new RegExp(`^${prefix}panel-type-(.+)$`));
+          if (match) return match[1];
+        }
+        return null;
+      };
+
+      // Live widget only ever holds screen (.cosam-) elements; print containers
+      // are built detached and written to a separate window.
+      const prefixes = ['cosam-'];
+      for (const prefix of prefixes) {
+        const colorBars = this.root.querySelectorAll('.' + prefix + 'event-color-bar');
+        for (const bar of colorBars) {
+          const slug = getSlugFromClass(bar, prefix);
+          if (slug && this._panelTypeColors.has(slug)) {
+            bar.style.backgroundColor = this._panelTypeColors.get(slug);
           }
         }
-      }
 
-      // Update grid view events
-      const gridEvents = this.root.querySelectorAll('.cosam-grid-event');
-      for (const event of gridEvents) {
-        for (const [cls, color] of this._panelTypeColors) {
-          if (event.classList.contains(cls)) {
-            event.style.borderLeftColor = color;
-            break;
+        // Update grid view events
+        const gridEvents = this.root.querySelectorAll('.' + prefix + 'grid-event');
+        for (const event of gridEvents) {
+          const slug = getSlugFromClass(event, prefix);
+          if (slug && this._panelTypeColors.has(slug)) {
+            event.style.borderLeftColor = this._panelTypeColors.get(slug);
           }
         }
       }
@@ -1275,6 +1318,124 @@ import QRCode from 'qrcode';
           'Delete "' + this.state.activeScheduleName + '"');
         deleteItem.addEventListener('click', () => { menu.classList.remove('open'); this._showDeleteScheduleModal(); });
         menu.appendChild(deleteItem);
+      }
+
+      return menu;
+    }
+
+    _getThemeLabel(theme) {
+      const labels = {
+        'cosam': 'Default',
+        'light': 'Light',
+        'dark': 'Dark',
+        'high-contrast': 'High Contrast',
+      };
+      return labels[theme] || 'Default';
+    }
+
+    _buildThemeMenu() {
+      const menu = el('div', { className: 'cosam-theme-menu', role: 'menu' });
+      const themes = [
+        ['cosam', 'Default'],
+        ['light', 'Light'],
+        ['dark', 'Dark'],
+        ['high-contrast', 'High Contrast'],
+      ];
+      for (const [value, label] of themes) {
+        const isActive = this.state.theme === value;
+        const item = el('button', {
+          type: 'button',
+          className: 'cosam-theme-menu-item' + (isActive ? ' active' : ''),
+          role: 'menuitem',
+        });
+        const check = el('span', { className: 'cosam-theme-menu-check', 'aria-hidden': 'true' }, isActive ? '✓' : '');
+        const text = el('span', {}, label);
+        item.append(check, text);
+        item.addEventListener('click', () => {
+          this.state.setTheme(value);
+          menu.classList.remove('open');
+          this.render();
+        });
+        menu.appendChild(item);
+      }
+
+      menu.appendChild(el('div', { className: 'cosam-theme-menu-divider', role: 'separator' }));
+
+      // Large type toggle
+      const largeTypeItem = el('button', {
+        type: 'button',
+        className: 'cosam-theme-menu-item' + (this.state.largeType ? ' active' : ''),
+        role: 'menuitem',
+      });
+      const largeTypeCheck = el('span', { className: 'cosam-theme-menu-check', 'aria-hidden': 'true' }, this.state.largeType ? '✓' : '');
+      const largeTypeText = el('span', {}, 'Large Type');
+      largeTypeItem.append(largeTypeCheck, largeTypeText);
+      largeTypeItem.addEventListener('click', () => {
+        this.state.largeType = !this.state.largeType;
+        menu.classList.remove('open');
+        this.render();
+      });
+      menu.appendChild(largeTypeItem);
+
+      return menu;
+    }
+
+    _buildPrintMenu() {
+      const menu = el('div', { className: 'cosam-print-menu', role: 'menu' });
+
+      // Layout options
+      const layoutLabel = el('div', { className: 'cosam-print-menu-label' }, 'Layout');
+      menu.appendChild(layoutLabel);
+
+      const layouts = [
+        ['default', 'Default (Smart)'],
+        ['grid', 'Grid'],
+        ['list', 'List'],
+      ];
+      for (const [value, label] of layouts) {
+        const isActive = this.state.printLayout === value;
+        const item = el('button', {
+          type: 'button',
+          className: 'cosam-print-menu-item' + (isActive ? ' active' : ''),
+          role: 'menuitem',
+        });
+        const check = el('span', { className: 'cosam-print-menu-check', 'aria-hidden': 'true' }, isActive ? '✓' : '');
+        const text = el('span', {}, label);
+        item.append(check, text);
+        item.addEventListener('click', () => {
+          this.state.printLayout = value;
+          menu.classList.remove('open');
+          this.render();
+        });
+        menu.appendChild(item);
+      }
+
+      menu.appendChild(el('div', { className: 'cosam-print-menu-divider', role: 'separator' }));
+
+      // Color options
+      const colorLabel = el('div', { className: 'cosam-print-menu-label' }, 'Color');
+      menu.appendChild(colorLabel);
+
+      const colors = [
+        ['color', 'Color'],
+        ['bw', 'Black & White'],
+      ];
+      for (const [value, label] of colors) {
+        const isActive = this.state.printColor === value;
+        const item = el('button', {
+          type: 'button',
+          className: 'cosam-print-menu-item' + (isActive ? ' active' : ''),
+          role: 'menuitem',
+        });
+        const check = el('span', { className: 'cosam-print-menu-check', 'aria-hidden': 'true' }, isActive ? '✓' : '');
+        const text = el('span', {}, label);
+        item.append(check, text);
+        item.addEventListener('click', () => {
+          this.state.printColor = value;
+          menu.classList.remove('open');
+          this.render();
+        });
+        menu.appendChild(item);
       }
 
       return menu;
@@ -1379,8 +1540,8 @@ import QRCode from 'qrcode';
       });
       left.append(listBtn, gridBtn);
 
-      // Even time grid toggle (only in grid view)
-      if (this.state.view === 'grid') {
+      // Even time grid toggle (only in grid view and when enabled via init flag)
+      if (this.state.view === 'grid' && this.state.showEvenGridSwitch) {
         const evenGridBtn = el('button', {
           type: 'button',
           className: 'cosam-btn cosam-btn-icon' + (this.state.evenTimeGrid ? ' active' : ''),
@@ -1484,26 +1645,41 @@ import QRCode from 'qrcode';
       searchWrap.appendChild(searchInput);
       right.appendChild(searchWrap);
 
-      const themeSelect = el('select', {
-        className: 'cosam-theme-select',
+      // Theme dropdown
+      const themeGroup = el('div', { className: 'cosam-theme-group' });
+      const themeBtn = el('button', {
+        type: 'button',
+        className: 'cosam-btn cosam-btn-icon cosam-theme-btn',
         'aria-label': 'Theme',
+        'aria-haspopup': 'menu',
+        'aria-expanded': 'false',
+        title: 'Theme',
       });
-      const themeOptions = [
-        ['cosam', 'Default'],
-        ['light', 'Light'],
-        ['dark', 'Dark'],
-        ['high-contrast', 'High Contrast'],
-      ];
-      for (const [value, label] of themeOptions) {
-        const option = el('option', { value }, label);
-        if (this.state.theme === value) option.selected = true;
-        themeSelect.appendChild(option);
-      }
-      themeSelect.addEventListener('change', () => {
-        this.state.setTheme(themeSelect.value);
-        this.render();
+      const themeLabel = el('span', { className: 'cosam-theme-label' });
+      themeLabel.innerHTML = ICONS.theme + ' ' + escapeHtml(this._getThemeLabel(this.state.theme));
+      const themeChevron = el('span', { className: 'cosam-theme-chevron' });
+      themeChevron.innerHTML = ICONS.chevronDown;
+      themeBtn.append(themeLabel, themeChevron);
+
+      const themeMenu = this._buildThemeMenu();
+      themeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = themeMenu.classList.toggle('open');
+        themeBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (isOpen) {
+          const close = (ev) => {
+            if (!themeGroup.contains(ev.target)) {
+              themeMenu.classList.remove('open');
+              themeBtn.setAttribute('aria-expanded', 'false');
+              document.removeEventListener('click', close);
+            }
+          };
+          document.addEventListener('click', close);
+        }
       });
-      right.appendChild(themeSelect);
+
+      themeGroup.append(themeBtn, themeMenu);
+      right.appendChild(themeGroup);
 
       // Share
       const shareBtn = el('button', {
@@ -1517,20 +1693,65 @@ import QRCode from 'qrcode';
       right.appendChild(shareBtn);
 
       // Print
-      const printBtn = el('button', {
-        type: 'button',
-        className: 'cosam-btn cosam-btn-icon',
-        title: 'Print schedule',
-        'aria-label': 'Print schedule',
-        innerHTML: ICONS.print,
-        onClick: () => this._handlePrint(),
-      });
-      right.appendChild(printBtn);
-
-      // Print plugin toolbar contribution (e.g. the advanced print-format
-      // dropdown), inserted next to the print button when a plugin is registered.
       if (this.state._printPlugin && typeof this.state._printPlugin.extendToolbar === 'function') {
+        // Print plugin registered: show simple print button and let plugin add its UI
+        const printBtn = el('button', {
+          type: 'button',
+          className: 'cosam-btn cosam-btn-icon',
+          title: 'Print schedule',
+          'aria-label': 'Print schedule',
+          innerHTML: ICONS.print,
+          onClick: () => this._handlePrint(),
+        });
+        right.appendChild(printBtn);
         this.state._printPlugin.extendToolbar(right, this._printPluginCtx());
+      } else {
+        // No print plugin: show built-in print dropdown
+        const printGroup = el('div', { className: 'cosam-print-group' });
+
+        // Print action button
+        const printBtn = el('button', {
+          type: 'button',
+          className: 'cosam-btn cosam-btn-icon cosam-print-action-btn',
+          title: 'Print schedule',
+          'aria-label': 'Print schedule',
+          innerHTML: ICONS.print,
+          onClick: () => this._handlePrint(),
+        });
+        printGroup.appendChild(printBtn);
+
+        // Options dropdown button
+        const printOptionsBtn = el('button', {
+          type: 'button',
+          className: 'cosam-btn cosam-btn-icon cosam-print-options-btn',
+          'aria-label': 'Print options',
+          'aria-haspopup': 'menu',
+          'aria-expanded': 'false',
+          title: 'Print options',
+        });
+        const printChevron = el('span', { className: 'cosam-print-chevron' });
+        printChevron.innerHTML = ICONS.chevronDown;
+        printOptionsBtn.appendChild(printChevron);
+
+        const printMenu = this._buildPrintMenu();
+        printOptionsBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isOpen = printMenu.classList.toggle('open');
+          printOptionsBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+          if (isOpen) {
+            const close = (ev) => {
+              if (!printGroup.contains(ev.target)) {
+                printMenu.classList.remove('open');
+                printOptionsBtn.setAttribute('aria-expanded', 'false');
+                document.removeEventListener('click', close);
+              }
+            };
+            document.addEventListener('click', close);
+          }
+        });
+
+        printGroup.append(printOptionsBtn, printMenu);
+        right.appendChild(printGroup);
       }
 
       // Help
@@ -1797,8 +2018,8 @@ import QRCode from 'qrcode';
 
     // ── List View ──
 
-    _buildListView(events, isPrintLayout = false) {
-      const container = el('div', { className: 'cosam-list-view' });
+    _buildListView(events, isPrintLayout = false, printPrefix = 'cosam-') {
+      const container = el('div', { className: printPrefix + 'list-view' });
 
       // Group by epoch-minute slot key (sort order = chronological).
       const listDayTimeline = (this.state.data && this.state.data.dayTimeline) || [];
@@ -1833,41 +2054,41 @@ import QRCode from 'qrcode';
           // fall back to getDayLabel which parses from the YYYY-MM-DD string.
           const dtEntry = listDayTimeline.find(d => d.date === dayKey);
           const dayLabel = dtEntry ? getDayLabel(dtEntry.date) : getDayLabel(dayKey);
-          daySection = el('div', { className: 'cosam-day-section' });
+          daySection = el('div', { className: printPrefix + 'day-section' });
           daySection.appendChild(el('div', {
-            className: 'cosam-day-header',
+            className: printPrefix + 'day-header',
             role: 'heading',
             'aria-level': '2',
           }, dayLabel));
           container.appendChild(daySection);
         }
 
-        const group = el('div', { className: 'cosam-time-group' });
-        const timeHeader = el('div', { className: 'cosam-time-header' });
+        const group = el('div', { className: printPrefix + 'time-group' });
+        const timeHeader = el('div', { className: printPrefix + 'time-header' });
         // Use split time format for aligned display with accessibility
         const timeSplit = formatTimeSplit(evts[0] ? evts[0].startTime : null);
         if (timeSplit.isSpecial) {
           // Midnight/Noon - centered across both columns
           timeHeader.appendChild(el('div', {
-            className: 'cosam-time-header-time cosam-time-split cosam-time-special',
+            className: printPrefix + 'time-header-time ' + printPrefix + 'time-split ' + printPrefix + 'time-special',
             'aria-label': timeSplit.label,
           }, timeSplit.hour));
         } else {
           // Regular time - split into hour (right) and suffix (left)
           const timeContainer = el('div', {
-            className: 'cosam-time-header-time cosam-time-split',
+            className: printPrefix + 'time-header-time ' + printPrefix + 'time-split',
             'aria-label': timeSplit.label,
           });
           // Screen reader only full time
-          timeContainer.appendChild(el('span', { className: 'cosam-sr-only' }, timeSplit.full));
+          timeContainer.appendChild(el('span', { className: printPrefix + 'sr-only' }, timeSplit.full));
           // Visible hour part (right-aligned)
           timeContainer.appendChild(el('span', {
-            className: 'cosam-time-hour',
+            className: printPrefix + 'time-hour',
             'aria-hidden': 'true',
           }, timeSplit.hour));
           // Visible suffix part (left-aligned, AM/PM or :MM)
           timeContainer.appendChild(el('span', {
-            className: 'cosam-time-suffix',
+            className: printPrefix + 'time-suffix',
             'aria-hidden': 'true',
           }, timeSplit.suffix));
           timeHeader.appendChild(timeContainer);
@@ -1876,9 +2097,9 @@ import QRCode from 'qrcode';
 
         for (const evt of evts) {
           if (this.state._isBreakEvent(evt)) {
-            group.appendChild(this._buildBreakBanner(evt));
+            group.appendChild(this._buildBreakBanner(evt, printPrefix));
           } else {
-            group.appendChild(this._buildEventCard(evt, isPrintLayout));
+            group.appendChild(this._buildEventCard(evt, isPrintLayout, printPrefix));
           }
         }
         daySection.appendChild(group);
@@ -1887,10 +2108,10 @@ import QRCode from 'qrcode';
       return container;
     }
 
-    _buildBreakBanner(evt) {
+    _buildBreakBanner(evt, printPrefix = 'cosam-') {
       const isOvernight = evt.panelType === '%NB';
       const banner = el('div', {
-        className: 'cosam-break-banner' + (isOvernight ? ' cosam-implicit-overnight-break' : ''),
+        className: printPrefix + 'break-banner' + (isOvernight ? ' ' + printPrefix + 'implicit-overnight-break' : ''),
         role: 'button',
         tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
@@ -1905,58 +2126,58 @@ import QRCode from 'qrcode';
 
       // Add moon for overnight breaks
       if (isOvernight) {
-        const nameWrapper = el('div', { className: 'cosam-break-name' });
-        nameWrapper.appendChild(el('span', { className: 'cosam-implicit-overnight-moon' }, '🌙'));
+        const nameWrapper = el('div', { className: printPrefix + 'break-name' });
+        nameWrapper.appendChild(el('span', { className: printPrefix + 'implicit-overnight-moon' }, '🌙'));
         nameWrapper.appendChild(document.createTextNode(' ' + evt.name));
         banner.appendChild(nameWrapper);
       } else {
-        banner.appendChild(el('div', { className: 'cosam-break-name' }, evt.name));
+        banner.appendChild(el('div', { className: printPrefix + 'break-name' }, evt.name));
       }
       if (evt.description) {
-        banner.appendChild(el('div', { className: 'cosam-break-desc' }, evt.description));
+        banner.appendChild(el('div', { className: printPrefix + 'break-desc' }, evt.description));
       }
       const timeStr = formatTimeRange(evt.startTime, evt.endTime);
       if (timeStr) {
-        const meta = el('div', { className: 'cosam-break-meta' });
+        const meta = el('div', { className: printPrefix + 'break-meta' });
         meta.innerHTML = ICONS.clock + ' ' + escapeHtml(timeStr);
         banner.appendChild(meta);
       }
       return banner;
     }
 
-    _buildEventCard(evt, isPrintLayout = false) {
+    _buildEventCard(evt, isPrintLayout = false, printPrefix = 'cosam-') {
       const isStarred = this.state.starred.has(evt.id);
       const isShared = this.state.sharedStarred.has(evt.id);
-      const typeClass = this._panelTypeClass(evt.panelType);
+      const typeClass = this._panelTypeClass(evt.panelType, printPrefix);
       const card = el('div', {
-        className: 'cosam-event-card' + (isStarred ? ' starred' : '') + (isShared ? ' cosam-shared' : ''),
+        className: printPrefix + 'event-card' + (isStarred ? ' starred' : '') + (isShared ? ' ' + printPrefix + 'shared' : ''),
       });
 
       // Color bar
       if (typeClass) {
         card.appendChild(el('div', {
-          className: 'cosam-event-color-bar ' + typeClass,
+          className: printPrefix + 'event-color-bar ' + typeClass,
           'aria-hidden': 'true',
         }));
       }
 
       // Body
-      const body = el('div', { className: 'cosam-event-body' });
+      const body = el('div', { className: printPrefix + 'event-body' });
 
       // Title
-      body.appendChild(el('div', { className: 'cosam-event-title' }, evt.name));
+      body.appendChild(el('div', { className: printPrefix + 'event-title' }, evt.name));
 
       // Meta
-      const meta = el('div', { className: 'cosam-event-meta' });
-      const metaLeft = el('div', { className: 'cosam-event-meta-left' });
-      const metaRight = el('div', { className: 'cosam-event-meta-right' });
+      const meta = el('div', { className: printPrefix + 'event-meta' });
+      const metaLeft = el('div', { className: printPrefix + 'event-meta-left' });
+      const metaRight = el('div', { className: printPrefix + 'event-meta-right' });
 
       // For print layout (Typst style): title+presenter left, room+time right
       // For screen display: time+room left, cost+capacity right
       if (isPrintLayout) {
         // Print layout: presenter on left, room+time on right
         if (evt.credits && evt.credits.length > 0) {
-          const presenterSpan = el('span', { className: 'cosam-meta-presenter' });
+          const presenterSpan = el('span', { className: printPrefix + 'meta-presenter' });
           presenterSpan.textContent = evt.credits.join(', ');
           metaLeft.appendChild(presenterSpan);
         }
@@ -1971,13 +2192,13 @@ import QRCode from 'qrcode';
             roomElements.push(roomName);
           }
           if (roomElements.length > 0) {
-            const roomSpan = el('span', { className: 'cosam-meta-room' });
+            const roomSpan = el('span', { className: printPrefix + 'meta-room' });
             roomSpan.textContent = roomElements.join(', ');
             metaRight.appendChild(roomSpan);
           }
         }
         if (evt.startTime) {
-          const timeSpan = el('span', { className: 'cosam-meta-time' });
+          const timeSpan = el('span', { className: printPrefix + 'meta-time' });
           timeSpan.textContent = formatTimeRange(evt.startTime, evt.endTime);
           if (metaRight.children.length > 0) {
             metaRight.appendChild(document.createTextNode(' \\ '));
@@ -1987,23 +2208,23 @@ import QRCode from 'qrcode';
       } else {
         // Screen layout: time and room on left
         if (evt.startTime) {
-          const timeSpan = el('span', { className: 'cosam-meta-time' });
+          const timeSpan = el('span', { className: printPrefix + 'meta-time' });
           timeSpan.innerHTML = ICONS.clock + ' ' + escapeHtml(formatTimeRange(evt.startTime, evt.endTime));
           metaLeft.appendChild(timeSpan);
         }
         // Rooms - V5 roomIds array
         if (evt.roomIds && evt.roomIds.length > 0) {
-          const roomSpan = el('span', { className: 'cosam-meta-room' });
+          const roomSpan = el('span', { className: printPrefix + 'meta-room' });
           roomSpan.innerHTML = ICONS.mappin;
           const roomElements = [];
           for (const roomId of evt.roomIds) {
             const room = this.state.data.rooms.find(r => r.uid === roomId);
             if (!room) continue;
             const roomName = room.longName || room.shortName;
-            const textWrap = el('span', { className: 'cosam-meta-room-text' });
+            const textWrap = el('span', { className: printPrefix + 'meta-room-text' });
             textWrap.appendChild(el('span', {}, roomName));
             if (room.hotelRoom && room.hotelRoom !== roomName) {
-              textWrap.appendChild(el('span', { className: 'cosam-meta-room-sub' }, `(${room.hotelRoom})`));
+              textWrap.appendChild(el('span', { className: printPrefix + 'meta-room-sub' }, `(${room.hotelRoom})`));
             }
             roomElements.push(textWrap);
           }
@@ -2019,11 +2240,11 @@ import QRCode from 'qrcode';
 
         // Right side: cost, capacity, etc.
         if (evt.cost && evt.isPremium) {
-          metaRight.appendChild(el('span', { className: 'cosam-meta-cost' }, evt.cost));
+          metaRight.appendChild(el('span', { className: printPrefix + 'meta-cost' }, evt.cost));
         }
         const cardCap = capacityText(evt);
         if (cardCap) {
-          metaRight.appendChild(el('span', { className: 'cosam-meta-capacity' }, 'Capacity: ' + cardCap));
+          metaRight.appendChild(el('span', { className: printPrefix + 'meta-capacity' }, 'Capacity: ' + cardCap));
         }
       }
 
@@ -2034,39 +2255,39 @@ import QRCode from 'qrcode';
       body.appendChild(meta);
 
       // Badges
-      const badges = el('div', { className: 'cosam-event-badges' });
-      if (isShared) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-shared', 'aria-label': 'In shared schedule' }, 'Shared'));
-      if (evt.isWorkshop) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-workshop' }, 'Workshop'));
+      const badges = el('div', { className: printPrefix + 'event-badges' });
+      if (isShared) badges.appendChild(el('span', { className: printPrefix + 'badge ' + printPrefix + 'badge-shared', 'aria-label': 'In shared schedule' }, 'Shared'));
+      if (evt.isWorkshop) badges.appendChild(el('span', { className: printPrefix + 'badge ' + printPrefix + 'badge-workshop' }, 'Workshop'));
       // Multi-part continuation parts show the price as a faded, italic pill;
       // the series note (below) explains one purchase covers every part.
       if (evt.cost && evt.isPremium) {
         if (evt.totalParts && !evt.isSeriesLead) {
-          badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid cosam-badge-series' }, evt.cost));
+          badges.appendChild(el('span', { className: printPrefix + 'badge ' + printPrefix + 'badge-paid ' + printPrefix + 'badge-series' }, evt.cost));
         } else {
-          badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-paid' }, evt.cost));
+          badges.appendChild(el('span', { className: printPrefix + 'badge ' + printPrefix + 'badge-paid' }, evt.cost));
         }
       }
       const cardCap = capacityText(evt);
       if (cardCap) badges.appendChild(el('span', {
-        className: 'cosam-badge cosam-badge-capacity',
+        className: printPrefix + 'badge ' + printPrefix + 'badge-capacity',
         'aria-label': 'Capacity ' + cardCap,
       }, 'Capacity: ' + cardCap));
-      if (evt.isFull) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-full' }, 'Full'));
-      if (evt.isKids) badges.appendChild(el('span', { className: 'cosam-badge cosam-badge-kids' }, 'Kids'));
+      if (evt.isFull) badges.appendChild(el('span', { className: printPrefix + 'badge ' + printPrefix + 'badge-full' }, 'Full'));
+      if (evt.isKids) badges.appendChild(el('span', { className: printPrefix + 'badge ' + printPrefix + 'badge-kids' }, 'Kids'));
       if (badges.children.length > 0) body.appendChild(badges);
 
       // Multi-part series cost note
       const cardSeriesNote = seriesCostNote(evt);
-      if (cardSeriesNote) body.appendChild(el('div', { className: 'cosam-event-series-note' }, cardSeriesNote));
+      if (cardSeriesNote) body.appendChild(el('div', { className: printPrefix + 'event-series-note' }, cardSeriesNote));
 
       // Presenters/Credits (only in screen layout, not in print layout where they're in meta)
       if (!isPrintLayout && evt.credits && evt.credits.length > 0) {
-        body.appendChild(el('div', { className: 'cosam-event-presenters' }, evt.credits.join(', ')));
+        body.appendChild(el('div', { className: printPrefix + 'event-presenters' }, evt.credits.join(', ')));
       }
 
       // Description (hidden, shown on expand)
       if (evt.description) {
-        body.appendChild(el('div', { className: 'cosam-event-desc' }, evt.description));
+        body.appendChild(el('div', { className: printPrefix + 'event-desc' }, evt.description));
       }
 
       // Click to expand / open modal
@@ -2087,7 +2308,7 @@ import QRCode from 'qrcode';
       card.appendChild(body);
 
       // Right side: people indicator + star, grouped so they align together.
-      const right = el('div', { className: 'cosam-event-right' });
+      const right = el('div', { className: printPrefix + 'event-right' });
 
       // People indicator: shown when event is in any schedule other than (or in
       // addition to) the active one. Count shows only the "other" schedules so
@@ -2097,17 +2318,17 @@ import QRCode from 'qrcode';
       const showPeople = otherCount > 0;
       if (showPeople) {
         const peopleEl = el('div', {
-          className: 'cosam-event-people',
+          className: printPrefix + 'event-people',
           'aria-label': `Also in ${otherCount} other schedule${otherCount === 1 ? '' : 's'}: ${scheduleNames.join(', ')}`,
           title: `Schedules: ${scheduleNames.join(', ')}`,
         });
-        peopleEl.innerHTML = ICONS.people + `<span class="cosam-people-count" aria-hidden="true">${otherCount}</span>`;
+        peopleEl.innerHTML = ICONS.people + `<span class="${printPrefix}people-count" aria-hidden="true">${otherCount}</span>`;
         right.appendChild(peopleEl);
       }
 
       const starBtn = el('button', {
         type: 'button',
-        className: 'cosam-event-star' + (isStarred ? ' starred' : ''),
+        className: printPrefix + 'event-star' + (isStarred ? ' starred' : ''),
         innerHTML: ICONS.star,
         title: isStarred ? 'Remove from ' + this.state.activeScheduleName : 'Add to ' + this.state.activeScheduleName,
         'aria-label': isStarred ? 'Remove from ' + this.state.activeScheduleName : 'Add to ' + this.state.activeScheduleName,
@@ -2128,15 +2349,15 @@ import QRCode from 'qrcode';
 
     // printMode renders a print-friendly variant of the same CSS Grid: time
     // rows become equal `1fr` tracks (even height, filling the column), the
-    // container is tagged `cosam-print-grid`, and the interactive on-screen
+    // container is tagged with print prefix, and the interactive on-screen
     // footer is omitted (print emits its own footer band).
     // printMode renders a print-friendly variant of the same CSS Grid (no
     // interactive chrome, compact spacing). fillPage uses even `1fr` rows that
     // stretch to fill a sized container (the advanced print's page-fill layout);
     // without it, rows take a natural minimum height so a sparse day isn't
     // stretched (the simple print).
-    _buildGridView(events, printMode = false, fillPage = false) {
-      const container = el('div', { className: 'cosam-grid-view' + (printMode ? ' cosam-print-grid' : '') });
+    _buildGridView(events, printMode = false, fillPage = false, printPrefix = 'cosam-') {
+      const container = el('div', { className: printPrefix + 'grid-view' + (printMode ? ' ' + printPrefix + 'print-grid' : '') });
 
       // Separate break events from regular events
       const regularEvents = events.filter(e => !this.state._isBreakEvent(e));
@@ -2155,7 +2376,7 @@ import QRCode from 'qrcode';
       }
 
       if (roomOrder.length === 0) {
-        container.appendChild(el('div', { className: 'cosam-empty' }, 'No rooms to display.'));
+        container.appendChild(el('div', { className: printPrefix + 'empty' }, 'No rooms to display.'));
         return container;
       }
 
@@ -2256,7 +2477,7 @@ import QRCode from 'qrcode';
 
       // Build CSS grid
       const grid = el('div', {
-        className: 'cosam-grid',
+        className: printPrefix + 'grid',
         role: 'table',
         'aria-label': 'Schedule grid view',
         style: {
@@ -2271,7 +2492,7 @@ import QRCode from 'qrcode';
       // Add a sticky header row per day (corner = day/date, room columns repeat).
       const headerSpecs = dayHeaders.length > 0 ? dayHeaders : [{ rowName: 'header', dayEntry: null }];
       for (const dh of headerSpecs) {
-        grid.appendChild(this._buildGridHeader(roomOrder, dh.dayEntry, dh.rowName));
+        grid.appendChild(this._buildGridHeader(roomOrder, dh.dayEntry, dh.rowName, printPrefix));
       }
 
       // Add time slots and events
@@ -2290,7 +2511,7 @@ import QRCode from 'qrcode';
 
         // Build time header with split time format for aligned display
         const timeHeader = el('div', {
-          className: 'cosam-grid-time-header' + (isHalfHour ? ' cosam-grid-time-half' : ''),
+          className: printPrefix + 'grid-time-header' + (isHalfHour ? ' ' + printPrefix + 'grid-time-half' : ''),
           style: {
             gridColumn: 'time',
             gridRow: timeSlot,
@@ -2309,25 +2530,25 @@ import QRCode from 'qrcode';
         if (timeSplit.isSpecial) {
           // Midnight/Noon - centered
           timeHeader.appendChild(el('div', {
-            className: (isHalfHour ? 'cosam-grid-time-minor' : 'cosam-grid-time-major') + ' cosam-grid-time-split cosam-grid-time-special',
+            className: (isHalfHour ? printPrefix + 'grid-time-minor' : printPrefix + 'grid-time-major') + ' ' + printPrefix + 'grid-time-split ' + printPrefix + 'grid-time-special',
             'aria-label': timeSplit.label,
           }, timeSplit.hour));
         } else {
           // Regular time - split display
           const timeContainer = el('div', {
-            className: (isHalfHour ? 'cosam-grid-time-minor' : 'cosam-grid-time-major') + ' cosam-grid-time-split',
+            className: (isHalfHour ? printPrefix + 'grid-time-minor' : printPrefix + 'grid-time-major') + ' ' + printPrefix + 'grid-time-split',
             'aria-label': timeSplit.label,
           });
           // Screen reader only full time
-          timeContainer.appendChild(el('span', { className: 'cosam-sr-only' }, timeSplit.full));
+          timeContainer.appendChild(el('span', { className: printPrefix + 'sr-only' }, timeSplit.full));
           // Visible hour (right-aligned)
           timeContainer.appendChild(el('span', {
-            className: 'cosam-grid-time-hour',
+            className: printPrefix + 'grid-time-hour',
             'aria-hidden': 'true',
           }, timeSplit.hour));
           // Visible suffix (left-aligned: AM/PM or :MM)
           timeContainer.appendChild(el('span', {
-            className: 'cosam-grid-time-suffix',
+            className: printPrefix + 'grid-time-suffix',
             'aria-hidden': 'true',
           }, timeSplit.suffix));
           timeHeader.appendChild(timeContainer);
@@ -2348,7 +2569,7 @@ import QRCode from 'qrcode';
               // Room has a real event — render it normally
               const roomEvents = slotRegular.filter(e => e.roomIds && e.roomIds.includes(roomId));
               for (const evt of roomEvents) {
-                const eventEl = this._buildGridEvent(evt);
+                const eventEl = this._buildGridEvent(evt, printPrefix);
                 eventEl.style.gridColumn = `room-${roomId}`;
 
                 // Row span: O(1) lookup via timeSlotMap[endEpoch].
@@ -2371,7 +2592,7 @@ import QRCode from 'qrcode';
               const startRoom = roomOrder[i];
               const endRoom = roomOrder[spanEnd - 1];
               for (const breakEvt of slotBreaks) {
-                const breakEl = this._buildGridBreak(breakEvt);
+                const breakEl = this._buildGridBreak(breakEvt, printPrefix);
 
                 // Calculate grid column span
                 if (spanEnd === i + 1) {
@@ -2402,7 +2623,7 @@ import QRCode from 'qrcode';
           for (const roomId of roomOrder) {
             const roomEvents = slotRegular.filter(e => e.roomIds && e.roomIds.includes(roomId));
             for (const evt of roomEvents) {
-              const eventEl = this._buildGridEvent(evt);
+              const eventEl = this._buildGridEvent(evt, printPrefix);
               eventEl.style.gridColumn = `room-${roomId}`;
 
               // Row span: O(1) lookup via timeSlotMap[endEpoch].
@@ -2425,7 +2646,7 @@ import QRCode from 'qrcode';
       // get lines; trailing end-only keys (folded onto [footer]) are skipped.
       for (let i = 0; i <= lastTrackIdx; i++) {
         const rowLine = el('div', {
-          className: 'cosam-grid-row-line',
+          className: printPrefix + 'grid-row-line',
           style: {
             gridColumn: `room-${roomOrder[0]} / -1`,
             gridRow: timeSlots[i]
@@ -2436,7 +2657,7 @@ import QRCode from 'qrcode';
       // Vertical column lines between rooms
       for (let r = 0; r < roomOrder.length - 1; r++) {
         const colLine = el('div', {
-          className: 'cosam-grid-col-line',
+          className: printPrefix + 'grid-col-line',
           style: {
             gridColumn: `room-${roomOrder[r]}`,
             gridRow: `${timeSlots[0]} / footer`
@@ -2448,12 +2669,12 @@ import QRCode from 'qrcode';
       // Add the footer row (generated/modified stamp). The advanced page-fill
       // print emits its own footer band, so skip it there; the simple print and
       // the on-screen view keep this one.
-      const footer = el('div', { className: 'cosam-grid-footer' });
+      const footer = el('div', { className: printPrefix + 'grid-footer' });
       footer.style.gridRow = 'footer';
       footer.style.gridColumn = '1 / -1'; // Span all columns
 
       // Add footer content
-      const footerContent = el('div', { className: 'cosam-grid-footer-content' });
+      const footerContent = el('div', { className: printPrefix + 'grid-footer-content' });
       let footerText = 'End of Schedule';
 
       const tsText = this._scheduleTimestampText();
@@ -2468,15 +2689,15 @@ import QRCode from 'qrcode';
       return container;
     }
 
-    _buildGridHeader(roomOrder, dayEntry, rowName) {
-      const header = el('div', { className: 'cosam-grid-header' });
+    _buildGridHeader(roomOrder, dayEntry, rowName, printPrefix = 'cosam-') {
+      const header = el('div', { className: printPrefix + 'grid-header' });
       const cellRow = rowName || 'header';
 
       // Time-column corner: shows this day's weekday over its date (like the
       // room name / hotel room split) so the day rides along with the sticky
       // header row. Falls back to a plain "Time" label when no day is given.
       const timeHeader = el('div', {
-        className: 'cosam-grid-header-cell cosam-grid-time-header',
+        className: printPrefix + 'grid-header-cell ' + printPrefix + 'grid-time-header',
         style: { gridColumn: 'time', gridRow: cellRow }
       });
       if (dayEntry) {
@@ -2485,18 +2706,18 @@ import QRCode from 'qrcode';
         const parts = dayEntry.date.split('-').map(Number);
         const d = new Date(parts[0], parts[1] - 1, parts[2]);
         const dayCell = el('div', {
-          className: 'cosam-grid-time-header-day',
+          className: printPrefix + 'grid-time-header-day',
           role: 'heading',
           'aria-level': '2',
         });
-        dayCell.appendChild(el('span', { className: 'cosam-grid-time-header-weekday' },
+        dayCell.appendChild(el('span', { className: printPrefix + 'grid-time-header-weekday' },
           d.toLocaleDateString('en-US', { weekday: 'long' })));
-        dayCell.appendChild(el('span', { className: 'cosam-grid-time-header-date' },
+        dayCell.appendChild(el('span', { className: printPrefix + 'grid-time-header-date' },
           d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })));
         timeHeader.appendChild(dayCell);
       } else {
         timeHeader.appendChild(el('div', {
-          className: 'cosam-grid-time-split cosam-grid-time-special',
+          className: printPrefix + 'grid-time-split ' + printPrefix + 'grid-time-special',
           'aria-label': 'Time column',
         }, 'Time'));
       }
@@ -2511,7 +2732,7 @@ import QRCode from 'qrcode';
           roomDisplay = `${roomName}<br><small style="opacity: 0.8">(${room.hotelRoom})</small>`;
         }
         const roomHeader = el('div', {
-          className: 'cosam-grid-header-cell',
+          className: printPrefix + 'grid-header-cell',
           style: { gridColumn: `room-${roomId}`, gridRow: cellRow }
         });
         roomHeader.innerHTML = roomDisplay;
@@ -2521,17 +2742,17 @@ import QRCode from 'qrcode';
       return header;
     }
 
-    _buildGridSleepBreak(columnCount) {
-      const sleepBreak = el('div', { className: 'cosam-sleep-break' });
-      sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-icon' }, '🌙'));
-      sleepBreak.appendChild(el('div', { className: 'cosam-sleep-break-text' }, 'Overnight Break'));
+    _buildGridSleepBreak(columnCount, printPrefix = 'cosam-') {
+      const sleepBreak = el('div', { className: printPrefix + 'sleep-break' });
+      sleepBreak.appendChild(el('div', { className: printPrefix + 'sleep-break-icon' }, '🌙'));
+      sleepBreak.appendChild(el('div', { className: printPrefix + 'sleep-break-text' }, 'Overnight Break'));
       return sleepBreak;
     }
 
-    _buildGridBreak(evt) {
+    _buildGridBreak(evt, printPrefix = 'cosam-') {
       const isOvernight = evt.panelType === '%NB';
       const div = el('div', {
-        className: 'cosam-grid-break' + (isOvernight ? ' cosam-implicit-overnight-break' : ''),
+        className: printPrefix + 'grid-break' + (isOvernight ? ' ' + printPrefix + 'implicit-overnight-break' : ''),
         role: 'button',
         tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
@@ -2546,25 +2767,25 @@ import QRCode from 'qrcode';
 
       // Add moon for overnight breaks
       if (isOvernight) {
-        const nameWrapper = el('div', { className: 'cosam-grid-break-name' });
-        nameWrapper.appendChild(el('span', { className: 'cosam-implicit-overnight-moon' }, '🌙'));
+        const nameWrapper = el('div', { className: printPrefix + 'grid-break-name' });
+        nameWrapper.appendChild(el('span', { className: printPrefix + 'implicit-overnight-moon' }, '🌙'));
         nameWrapper.appendChild(document.createTextNode(' ' + evt.name));
         div.appendChild(nameWrapper);
       } else {
-        div.appendChild(el('div', { className: 'cosam-grid-break-name' }, evt.name));
+        div.appendChild(el('div', { className: printPrefix + 'grid-break-name' }, evt.name));
       }
       if (evt.duration) {
-        div.appendChild(el('div', { className: 'cosam-grid-event-time' }, formatDuration(evt.duration)));
+        div.appendChild(el('div', { className: printPrefix + 'grid-event-time' }, formatDuration(evt.duration)));
       }
       return div;
     }
 
-    _buildGridEvent(evt) {
+    _buildGridEvent(evt, printPrefix = 'cosam-') {
       const isStarred = this.state.starred.has(evt.id);
       const isShared = this.state.sharedStarred.has(evt.id);
-      const typeClass = this._panelTypeClass(evt.panelType);
+      const typeClass = this._panelTypeClass(evt.panelType, printPrefix);
       const div = el('div', {
-        className: 'cosam-grid-event' + (isStarred ? ' starred' : '') + (isShared ? ' cosam-shared' : '') + (typeClass ? (' ' + typeClass) : ''),
+        className: printPrefix + 'grid-event' + (isStarred ? ' starred' : '') + (isShared ? ' ' + printPrefix + 'shared' : '') + (typeClass ? (' ' + typeClass) : ''),
         role: 'button',
         tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
@@ -2579,12 +2800,12 @@ import QRCode from 'qrcode';
 
       // Actions float — must be inserted BEFORE the name so text wraps around it.
       // Star + optional people indicator are stacked in a float:right container.
-      const actionsEl = el('div', { className: 'cosam-grid-event-actions' });
+      const actionsEl = el('div', { className: printPrefix + 'grid-event-actions' });
 
       const starEl = el('span', {
         role: 'button',
         tabindex: '0',
-        className: 'cosam-grid-event-star' + (isStarred ? ' starred' : ''),
+        className: printPrefix + 'grid-event-star' + (isStarred ? ' starred' : ''),
         innerHTML: ICONS.star,
         onClick: (e) => {
           e.stopPropagation();
@@ -2608,16 +2829,16 @@ import QRCode from 'qrcode';
       const otherCount = isStarred ? scheduleNames.length - 1 : scheduleNames.length;
       if (otherCount > 0) {
         const peopleEl = el('span', {
-          className: 'cosam-grid-event-people',
+          className: printPrefix + 'grid-event-people',
           'aria-label': `Also in ${otherCount} other schedule${otherCount === 1 ? '' : 's'}: ${scheduleNames.join(', ')}`,
           title: `Schedules: ${scheduleNames.join(', ')}`,
         });
-        peopleEl.innerHTML = ICONS.people + `<span class="cosam-people-count" aria-hidden="true">${otherCount}</span>`;
+        peopleEl.innerHTML = ICONS.people + `<span class="${printPrefix}people-count" aria-hidden="true">${otherCount}</span>`;
         actionsEl.appendChild(peopleEl);
       }
 
       div.appendChild(actionsEl);
-      div.appendChild(el('div', { className: 'cosam-grid-event-name' }, evt.name));
+      div.appendChild(el('div', { className: printPrefix + 'grid-event-name' }, evt.name));
 
       // Add room information for mobile view
       if (evt.roomIds && evt.roomIds.length > 0) {
@@ -2631,16 +2852,16 @@ import QRCode from 'qrcode';
         }).filter(Boolean);
 
         if (roomNames.length > 0) {
-          div.appendChild(el('div', { className: 'cosam-grid-event-room' }, roomNames.join(', ')));
+          div.appendChild(el('div', { className: printPrefix + 'grid-event-room' }, roomNames.join(', ')));
         }
       }
 
       if (evt.credits && evt.credits.length > 0) {
-        div.appendChild(el('div', { className: 'cosam-grid-event-credits' }, evt.credits.join(', ')));
+        div.appendChild(el('div', { className: printPrefix + 'grid-event-credits' }, evt.credits.join(', ')));
       }
 
       if (evt.duration) {
-        div.appendChild(el('div', { className: 'cosam-grid-event-time' }, formatDuration(evt.duration)));
+        div.appendChild(el('div', { className: printPrefix + 'grid-event-time' }, formatDuration(evt.duration)));
       }
 
       // Premium cost — shown as a compact pill, mirroring the list/detail badge.
@@ -2651,10 +2872,10 @@ import QRCode from 'qrcode';
         if (evt.totalParts && !evt.isSeriesLead) {
           // Continuation part — faded, italic price pill; the series note (in
           // the detail view) explains one purchase covers every part.
-          div.appendChild(el('span', { className: 'cosam-grid-event-cost cosam-grid-event-cost-series' }, evt.cost));
+          div.appendChild(el('span', { className: printPrefix + 'grid-event-cost ' + printPrefix + 'grid-event-cost-series' }, evt.cost));
         } else {
           const costText = evt.totalParts ? evt.cost + ' (full series)' : evt.cost;
-          div.appendChild(el('span', { className: 'cosam-grid-event-cost' }, costText));
+          div.appendChild(el('span', { className: printPrefix + 'grid-event-cost' }, costText));
         }
       }
 
@@ -3358,63 +3579,9 @@ import QRCode from 'qrcode';
         return;
       }
 
-      const BREAKPOINT = 750;
-
-      // If window is narrow, show print options modal
-      if (window.innerWidth < BREAKPOINT) {
-        this._showPrintOptionsModal();
-        return;
-      }
-
-      // Normal print behavior for wide windows
+      // Print with the current layout/color (set via the print dropdown, which
+      // is available at every width — so no separate narrow-window modal).
       this._doPrint();
-    }
-
-    _showPrintOptionsModal() {
-      const modal = this._modalContent;
-      modal.innerHTML = '';
-
-      // Close button
-      const closeBtn = el('button', {
-        type: 'button',
-        className: 'cosam-modal-close',
-        'aria-label': 'Close',
-        innerHTML: '&times;',
-        onClick: () => {
-          this._modalOverlay.classList.remove('open');
-        },
-      });
-      modal.appendChild(closeBtn);
-
-      modal.appendChild(el('h2', {}, 'Print Schedule'));
-
-      const optionsContainer = el('div', { className: 'cosam-print-options' });
-
-      const printListBtn = el('button', {
-        type: 'button',
-        className: 'cosam-btn',
-        innerHTML: ICONS.list + ' Print List View',
-        onClick: () => {
-          this._modalOverlay.classList.remove('open');
-          this._doPrint('list');
-        },
-      });
-      optionsContainer.appendChild(printListBtn);
-
-      const printGridBtn = el('button', {
-        type: 'button',
-        className: 'cosam-btn',
-        innerHTML: ICONS.grid + ' Print Grid View',
-        onClick: () => {
-          this._modalOverlay.classList.remove('open');
-          this._doPrint('grid');
-        },
-      });
-      optionsContainer.appendChild(printGridBtn);
-
-      modal.appendChild(optionsContainer);
-
-      this._modalOverlay.classList.add('open');
     }
 
     /**
@@ -3469,10 +3636,30 @@ import QRCode from 'qrcode';
 
     _doPrint(viewOverride = null) {
       const wasDay = this.state.activeDay;
-      const printContainer = el('div', { className: 'cosam-calendar' });
-      printContainer.setAttribute('data-theme', this.state.theme || 'cosam');
 
-      const viewToPrint = viewOverride || this.state.view;
+      // Ensure panel type colors are loaded
+      this._ensurePanelTypeThemeStyles();
+
+      // Print reuses the widget's .cosam- classes; the print container is marked
+      // with .cosam-print so print-only rules apply positively (.cosam-print
+      // .cosam-x) and inherit the shared base rules. B&W is a further .cosam-bw
+      // modifier that recolors to grey. No parallel class sheet, no @media/!important.
+      const isBw = this.state.printColor === 'bw';
+      const printPrefix = 'cosam-';
+      const printContainer = el('div', {
+        className: 'cosam-print' + (isBw ? ' cosam-bw' : ''),
+      });
+
+      // Determine view to print based on printLayout setting
+      let viewToPrint;
+      if (viewOverride) {
+        viewToPrint = viewOverride;
+      } else if (this.state.printLayout === 'default') {
+        // Smart selection: use current view
+        viewToPrint = this.state.view;
+      } else {
+        viewToPrint = this.state.printLayout;
+      }
 
       if (viewToPrint === 'grid') {
         // Grid print: reuse the on-screen CSS Grid engine in print + fillPage
@@ -3480,10 +3667,12 @@ import QRCode from 'qrcode';
         // The grid's own footer row carries the generated/modified stamp (same
         // as the web view). Mark the user's starred picks, but only when the
         // schedule isn't already filtered to starred-only (where every panel
-        // would be starred and the marker is redundant).
-        printContainer.classList.add('cosam-print-grid-pages');
-        if (!this.state.filters.starredOnly) {
-          printContainer.classList.add('cosam-print-show-stars');
+        // would be starred and the marker is redundant). Also skip when viewing
+        // a specific named schedule (not "My Schedule") since all panels are
+        // already from that schedule.
+        printContainer.classList.add(printPrefix + 'grid-pages');
+        if (!this.state.filters.starredOnly && this.state.activeScheduleName === 'My Schedule') {
+          printContainer.classList.add(printPrefix + 'show-stars');
         }
         for (const day of this.state.days) {
           this.state.activeDay = day.key;
@@ -3493,81 +3682,78 @@ import QRCode from 'qrcode';
           // panel window (no empty leading/trailing break rows).
           events = this._stripBoundaryBreaks(events);
 
-          const dayPage = el('div', { className: 'cosam-print-day-page' });
-          dayPage.appendChild(el('div', { className: 'cosam-print-day-label' }, day.label));
-          dayPage.appendChild(this._buildGridView(events, true, true));
+          const dayPage = el('div', { className: printPrefix + 'day-page' });
+          dayPage.appendChild(el('div', { className: printPrefix + 'day-label' }, day.label));
+          dayPage.appendChild(this._buildGridView(events, true, true, printPrefix));
           printContainer.appendChild(dayPage);
         }
       } else {
-        // List print: all days as list sections (the on-screen list renders
-        // cleanly in print; @media print hides interactive chrome).
+        // List print: all days as list sections
         for (const day of this.state.days) {
           this.state.activeDay = day.key;
           const events = this.state.filteredEvents.call(this.state);
           if (events.length === 0) continue;
 
-          printContainer.appendChild(el('div', { className: 'cosam-print-day-label' }, day.label));
-          printContainer.appendChild(this._buildListView(events));
-        }
-      }
-
-      // Expand all descriptions for print
-      printContainer.querySelectorAll('.cosam-event-desc').forEach(d => { d.style.display = 'block'; });
-
-      // Apply panel type color styles to print container (grid event left borders)
-      if (this._panelTypeColors) {
-        const gridEvents = printContainer.querySelectorAll('.cosam-grid-event');
-        for (const event of gridEvents) {
-          for (const [cls, color] of this._panelTypeColors) {
-            if (event.classList.contains(cls)) {
-              event.style.borderLeftColor = color;
-              break;
-            }
-          }
-        }
-        const colorBars = printContainer.querySelectorAll('.cosam-event-color-bar');
-        for (const bar of colorBars) {
-          for (const [cls, color] of this._panelTypeColors) {
-            if (bar.classList.contains(cls)) {
-              bar.style.backgroundColor = color;
-              break;
-            }
-          }
+          printContainer.appendChild(el('div', { className: printPrefix + 'day-label' }, day.label));
+          printContainer.appendChild(this._buildListView(events, false, printPrefix));
         }
       }
 
       // Restore state
       this.state.activeDay = wasDay;
 
+      // Apply panel type colors to print container elements. Skipped for B&W:
+      // leaving these inline colors off lets the grayscale .cosam-print.cosam-bw rules
+      // take effect (inline styles would otherwise win over the stylesheet).
+      if (this._panelTypeColors && !isBw) {
+        const prefixes = [printPrefix];
+        for (const prefix of prefixes) {
+          // Update list view color bars
+          const colorBars = printContainer.querySelectorAll('.' + prefix + 'event-color-bar');
+          for (const bar of colorBars) {
+            for (const [slug, color] of this._panelTypeColors) {
+              if (bar.classList.contains(prefix + 'panel-type-' + slug)) {
+                bar.style.backgroundColor = color;
+                break;
+              }
+            }
+          }
+
+          // Update grid view events
+          const gridEvents = printContainer.querySelectorAll('.' + prefix + 'grid-event');
+          for (const event of gridEvents) {
+            for (const [slug, color] of this._panelTypeColors) {
+              if (event.classList.contains(prefix + 'panel-type-' + slug)) {
+                event.style.borderLeftColor = color;
+                break;
+              }
+            }
+          }
+        }
+      }
+
       // Open print window
       const printWin = window.open('', '_blank');
       if (!printWin) { window.print(); return; }
 
-      const styles = document.querySelector('link[href*="cosam-calendar"]');
-      const styleTag = styles ? `<link rel="stylesheet" href="${styles.href}">` : '';
-      const inlineStyles = document.querySelectorAll('style');
-      let inlineStyleHtml = '';
-      inlineStyles.forEach(s => {
-        if (s.textContent.includes('cosam-')) inlineStyleHtml += s.outerHTML;
-      });
+      // Collect all CSS from the current document
+      const allCSS = Array.from(document.styleSheets)
+        .map(styleSheet => {
+          try {
+            return Array.from(styleSheet.cssRules)
+              .map(rule => rule.cssText)
+              .join('');
+          } catch (e) {
+            console.warn('Could not read CSS rules from stylesheet:', styleSheet.href, e);
+            return '';
+          }
+        })
+        .join('');
 
-      // Also grab the CSS from the current page
-      const allCSS = Array.from(document.styleSheets).map(sheet => {
-        try { return Array.from(sheet.cssRules).map(r => r.cssText).join('\n'); }
-        catch (e) { return ''; }
-      }).join('\n');
-
-      // Force a white page in the print window. We copy the host page's full CSS
-      // above (so themed widget colors carry over), which also drags in the
-      // host/template body background; with the browser's "Background graphics"
-      // option on, that bleeds behind the schedule. These resets come after
-      // ${allCSS} so they win, and reset the detected page-bg vars so themed
-      // header/time backgrounds don't inherit the host color either. Scoped to
-      // this print window, so the host page's own print is unaffected.
-      printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Schedule</title>${styleTag}${inlineStyleHtml}<style>${allCSS}
+      printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Schedule</title><style>
 html,body{background:#fff!important;margin:0;height:100%;}
-.cosam-calendar{background:#fff!important;--cosam-page-bg:#fff;--cosam-widget-bg:#fff;}
-.cosam-event-desc{display:block!important;}</style></head><body>${printContainer.outerHTML}</body></html>`);
+${allCSS}
+</style></head><body>${printContainer.outerHTML}</body></html>`);
       printWin.document.close();
       printWin.focus();
       setTimeout(() => { printWin.print(); }, 500);
@@ -3751,6 +3937,9 @@ html,body{background:#fff!important;margin:0;height:100%;}
       const state = new CalendarState();
       if (opts.stylePageBody !== undefined) {
         state.stylePageBody = !!opts.stylePageBody;
+      }
+      if (opts.showEvenGridSwitch !== undefined) {
+        state.showEvenGridSwitch = !!opts.showEvenGridSwitch;
       }
       // Sticky-header top offset, so headers pin below a host-page fixed bar
       // (e.g. a Squarespace mobile nav). `stickyOffset` is a fixed pixel value;

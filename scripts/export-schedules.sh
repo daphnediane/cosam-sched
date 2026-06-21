@@ -128,6 +128,7 @@ for year in $(seq 2016 "$current_year"); do
         --export-embed-head "$embed_head"
         --export-embed-body "$embed_body"
         --export-test "$test_html"
+        --show-even-grid-switch
         --style-page
         --export-embed "$style_embed"
         --export-test "$style_page"

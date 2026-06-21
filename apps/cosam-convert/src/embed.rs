@@ -61,8 +61,13 @@ const STICKY_OFFSET_LINE: &str =
 
 /// `loader_expr` is the JS expression producing the loader (e.g.
 /// `CosAmCalendar.HtmlEmbedLoader()`); `style_page_line` is the optional
-/// `stylePageBody` opt line (already indented, or empty).
-fn init_bootstrap(loader_expr: &str, style_page_line: &str) -> String {
+/// `stylePageBody` opt line (already indented, or empty); `show_even_grid_switch_line`
+/// is the optional `showEvenGridSwitch` opt line (already indented, or empty).
+fn init_bootstrap(
+    loader_expr: &str,
+    style_page_line: &str,
+    show_even_grid_switch_line: &str,
+) -> String {
     format!(
         r#"// Initialize widget — resilient to Squarespace 7.0 Ajax navigation.
 // Direct loads parse this inline, but in-site nav swaps content via XHR without
@@ -75,7 +80,7 @@ fn init_bootstrap(loader_expr: &str, style_page_line: &str) -> String {
         el.setAttribute('data-cosam-mounted', '1');
         CosAmCalendar.init({{
             el: el,
-            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}
+            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}{show_even_grid_switch_line}
         }});
     }}
     document.addEventListener('DOMContentLoaded', mount);
@@ -217,10 +222,16 @@ pub fn generate_embed_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n            stylePageBody: true,",
         Some(false) => "\n            stylePageBody: false,",
+        None => "",
+    };
+    let show_even_grid_switch_line = match show_even_grid_switch {
+        Some(true) => "\n            showEvenGridSwitch: true,",
+        Some(false) => "\n            showEvenGridSwitch: false,",
         None => "",
     };
     let encoded_data = compress_and_encode(json_data)?;
@@ -259,7 +270,11 @@ pub fn generate_embed_html(
 </script>"#,
         css = sources.css,
         js = sources.js,
-        bootstrap = init_bootstrap("CosAmCalendar.JsonEmbedLoader()", style_page_line),
+        bootstrap = init_bootstrap(
+            "CosAmCalendar.JsonEmbedLoader()",
+            style_page_line,
+            show_even_grid_switch_line
+        ),
     );
 
     if minified {
@@ -280,8 +295,16 @@ pub fn generate_test_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<String> {
-    let embed_block = generate_embed_html(json_data, config, sources, false, style_page)?;
+    let embed_block = generate_embed_html(
+        json_data,
+        config,
+        sources,
+        false,
+        style_page,
+        show_even_grid_switch,
+    )?;
 
     let raw = sources
         .template
@@ -307,10 +330,16 @@ pub fn generate_embed_html_widget_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n    stylePageBody: true,",
         Some(false) => "\n    stylePageBody: false,",
+        None => "",
+    };
+    let show_even_grid_switch_line = match show_even_grid_switch {
+        Some(true) => "\n    showEvenGridSwitch: true,",
+        Some(false) => "\n    showEvenGridSwitch: false,",
         None => "",
     };
     let schedule_html = static_html::generate_static_schedule_html(export)?;
@@ -347,7 +376,11 @@ pub fn generate_embed_html_widget_html(
 </script>"#,
         css = sources.css,
         js = sources.js,
-        bootstrap = init_bootstrap("CosAmCalendar.HtmlEmbedLoader()", style_page_line),
+        bootstrap = init_bootstrap(
+            "CosAmCalendar.HtmlEmbedLoader()",
+            style_page_line,
+            show_even_grid_switch_line
+        ),
     );
 
     if minified {
@@ -367,8 +400,16 @@ pub fn generate_test_html_widget_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<String> {
-    let embed_block = generate_embed_html_widget_html(export, config, sources, false, style_page)?;
+    let embed_block = generate_embed_html_widget_html(
+        export,
+        config,
+        sources,
+        false,
+        style_page,
+        show_even_grid_switch,
+    )?;
 
     let raw = sources
         .template
@@ -410,7 +451,12 @@ pub fn generate_test_html_widget_html(
 /// `<article>` panels that Mercury inserts after the structural data script, so
 /// mounting on the data script alone yields an empty schedule — gate on the
 /// panels instead.
-fn resident_bootstrap(loader_expr: &str, style_page_line: &str, ready_expr: &str) -> String {
+fn resident_bootstrap(
+    loader_expr: &str,
+    style_page_line: &str,
+    show_even_grid_switch_line: &str,
+    ready_expr: &str,
+) -> String {
     format!(
         r#"// Resident widget bootstrap — site-wide Code Injection (Header).
 // The host swaps page content over XHR without re-running inline scripts in the
@@ -431,7 +477,7 @@ fn resident_bootstrap(loader_expr: &str, style_page_line: &str, ready_expr: &str
         el.setAttribute('data-cosam-mounted', '1');
         CosAmCalendar.init({{
             el: el,
-            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}
+            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}{show_even_grid_switch_line}
         }});
     }}
     // Debounce: let an in-flight content insertion settle, then try to mount.
@@ -471,10 +517,16 @@ pub fn generate_embed_head_widget_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n            stylePageBody: true,",
         Some(false) => "\n            stylePageBody: false,",
+        None => "",
+    };
+    let show_even_grid_switch_line = match show_even_grid_switch {
+        Some(true) => "\n            showEvenGridSwitch: true,",
+        Some(false) => "\n            showEvenGridSwitch: false,",
         None => "",
     };
     let config_html = if let Some(cfg) = config {
@@ -509,6 +561,7 @@ pub fn generate_embed_head_widget_html(
         bootstrap = resident_bootstrap(
             "CosAmCalendar.HtmlEmbedLoader()",
             style_page_line,
+            show_even_grid_switch_line,
             // Panels are separate <article> elements inserted after the data
             // script; wait for at least one so we never mount an empty schedule.
             "!!document.querySelector('.cosam-static-schedule article.cosam-panel')",
@@ -547,10 +600,16 @@ pub fn generate_embed_head_json(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n            stylePageBody: true,",
         Some(false) => "\n            stylePageBody: false,",
+        None => "",
+    };
+    let show_even_grid_switch_line = match show_even_grid_switch {
+        Some(true) => "\n            showEvenGridSwitch: true,",
+        Some(false) => "\n            showEvenGridSwitch: false,",
         None => "",
     };
     // Presentation config (branding + print-format defaults) ships in the head
@@ -586,6 +645,7 @@ pub fn generate_embed_head_json(
         bootstrap = resident_bootstrap(
             "CosAmCalendar.JsonEmbedLoader()",
             style_page_line,
+            show_even_grid_switch_line,
             // All data (including panels) lives in the single base64 script tag.
             "!!(document.getElementById('cosam-schedule-data') && document.getElementById('cosam-schedule-data').textContent.trim())",
         ),
@@ -625,8 +685,16 @@ pub fn write_embed_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<()> {
-    let html = generate_embed_html(json_data, config, sources, minified, style_page)?;
+    let html = generate_embed_html(
+        json_data,
+        config,
+        sources,
+        minified,
+        style_page,
+        show_even_grid_switch,
+    )?;
     write_html_file(path, &html, "embed HTML")
 }
 
@@ -638,8 +706,17 @@ pub fn write_test_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<()> {
-    let html = generate_test_html(json_data, config, title, sources, minified, style_page)?;
+    let html = generate_test_html(
+        json_data,
+        config,
+        title,
+        sources,
+        minified,
+        style_page,
+        show_even_grid_switch,
+    )?;
     write_html_file(path, &html, "test HTML")
 }
 
@@ -650,8 +727,16 @@ pub fn write_embed_html_widget_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<()> {
-    let html = generate_embed_html_widget_html(export, config, sources, minified, style_page)?;
+    let html = generate_embed_html_widget_html(
+        export,
+        config,
+        sources,
+        minified,
+        style_page,
+        show_even_grid_switch,
+    )?;
     write_html_file(path, &html, "embed HTML (widget-html)")
 }
 
@@ -663,9 +748,17 @@ pub fn write_test_html_widget_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<()> {
-    let html =
-        generate_test_html_widget_html(export, config, title, sources, minified, style_page)?;
+    let html = generate_test_html_widget_html(
+        export,
+        config,
+        title,
+        sources,
+        minified,
+        style_page,
+        show_even_grid_switch,
+    )?;
     write_html_file(path, &html, "test HTML (widget-html)")
 }
 
@@ -675,8 +768,15 @@ pub fn write_embed_head_widget_html(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<()> {
-    let html = generate_embed_head_widget_html(config, sources, minified, style_page)?;
+    let html = generate_embed_head_widget_html(
+        config,
+        sources,
+        minified,
+        style_page,
+        show_even_grid_switch,
+    )?;
     write_html_file(path, &html, "embed head engine (widget-html)")
 }
 
@@ -695,8 +795,10 @@ pub fn write_embed_head_json(
     sources: &WidgetSources,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
 ) -> Result<()> {
-    let html = generate_embed_head_json(config, sources, minified, style_page)?;
+    let html =
+        generate_embed_head_json(config, sources, minified, style_page, show_even_grid_switch)?;
     write_html_file(path, &html, "embed head engine (json)")
 }
 

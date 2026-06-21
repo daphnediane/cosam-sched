@@ -116,6 +116,7 @@ struct OutputSettings {
     test_template: Option<String>,
     minified: bool,
     style_page: Option<bool>,
+    show_even_grid_switch: Option<bool>,
     title: String,
     private_export: bool,
     embed_as_html: bool,
@@ -143,6 +144,7 @@ impl Default for OutputSettings {
             test_template: None,
             minified: true,
             style_page: None,
+            show_even_grid_switch: None,
             title: String::new(),
             private_export: false,
             embed_as_html: true,
@@ -639,6 +641,12 @@ fn parse_args() -> Result<CliArgs> {
                 }
                 current_settings.style_page = Some(false);
             }
+            "--show-even-grid-switch" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                current_settings.show_even_grid_switch = Some(true);
+            }
             "--private" => {
                 if first_setting_index.is_none() {
                     first_setting_index = Some(index);
@@ -1082,6 +1090,7 @@ fn main() {
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
+                            job.settings.show_even_grid_switch,
                         ),
                         OutputType::ExportEmbedHead => embed::write_embed_head_widget_html(
                             &job.path,
@@ -1089,6 +1098,7 @@ fn main() {
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
+                            job.settings.show_even_grid_switch,
                         ),
                         OutputType::ExportEmbedBody => embed::write_embed_body_widget_html(
                             &job.path,
@@ -1103,6 +1113,7 @@ fn main() {
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
+                            job.settings.show_even_grid_switch,
                         ),
                         _ => unreachable!(),
                     }
@@ -1120,6 +1131,7 @@ fn main() {
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
+                            job.settings.show_even_grid_switch,
                         ),
                         OutputType::ExportEmbedHead => embed::write_embed_head_json(
                             &job.path,
@@ -1127,6 +1139,7 @@ fn main() {
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
+                            job.settings.show_even_grid_switch,
                         ),
                         OutputType::ExportEmbedBody => embed::write_embed_body_json(
                             &job.path,
@@ -1141,6 +1154,7 @@ fn main() {
                             &sources,
                             job.settings.minified,
                             job.settings.style_page,
+                            job.settings.show_even_grid_switch,
                         ),
                         _ => unreachable!(),
                     }
