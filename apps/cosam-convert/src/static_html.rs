@@ -76,6 +76,20 @@ fn build_structural_json(export: &WidgetExport) -> Result<String> {
         "presenters".to_string(),
         serde_json::to_value(&export.presenters).context("Failed to serialize presenters")?,
     );
+    // FEATURE-154: precomputed day buckets travel with the structural block.
+    if !export.day_timeline.is_empty() {
+        obj.insert(
+            "dayTimeline".to_string(),
+            serde_json::to_value(&export.day_timeline).context("Failed to serialize dayTimeline")?,
+        );
+    }
+    if !export.half_day_timeline.is_empty() {
+        obj.insert(
+            "halfDayTimeline".to_string(),
+            serde_json::to_value(&export.half_day_timeline)
+                .context("Failed to serialize halfDayTimeline")?,
+        );
+    }
 
     serde_json::to_string_pretty(&serde_json::Value::Object(obj))
         .context("Failed to serialize structural JSON block")
@@ -328,6 +342,8 @@ mod tests {
             panel_types: BTreeMap::new(),
             timeline: vec![],
             presenters: vec![],
+            day_timeline: vec![],
+            half_day_timeline: vec![],
             panels: vec![WidgetPanel {
                 id: "GP001".to_string(),
                 base_id: "GP001".to_string(),

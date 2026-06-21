@@ -87,12 +87,9 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
 /// - Multiple weeks, same calendar month → `"Thursday 25"`
 /// - Spans multiple months → `"Thursday Jun 25"`
 pub fn make_day_label(date_str: &str, all_days: &[&str]) -> String {
-    use chrono::Datelike;
-
     let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") else {
         return date_str.to_string();
     };
-    let weekday = date.format("%A").to_string();
 
     let parsed: Vec<NaiveDate> = all_days
         .iter()
@@ -102,16 +99,8 @@ pub fn make_day_label(date_str: &str, all_days: &[&str]) -> String {
     let min_date = parsed.iter().copied().min().unwrap_or(date);
     let max_date = parsed.iter().copied().max().unwrap_or(date);
 
-    let same_week = min_date.iso_week() == max_date.iso_week();
-    let same_month = min_date.year() == max_date.year() && min_date.month() == max_date.month();
-
-    if same_week {
-        weekday
-    } else if same_month {
-        format!("{} {}", weekday, date.day())
-    } else {
-        format!("{} {} {}", weekday, date.format("%b"), date.day())
-    }
+    // Shared with the widget day timelines so headings read identically.
+    schedule_core::value::timezone::day_label(date, min_date, max_date)
 }
 
 /// Convert a day label (e.g. `"Thursday 25"`) to a file-stem slug

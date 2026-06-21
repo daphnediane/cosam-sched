@@ -24,8 +24,8 @@ pub use config::{
     SchedulePrintFontSizes, SchedulePrintFonts, SchedulePrintFormat,
 };
 pub use schedule::{
-    WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter,
-    WidgetRoom, WidgetTimeline,
+    WidgetDaySpan, WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType,
+    WidgetPresenter, WidgetRoom, WidgetTimeline,
 };
 
 use thiserror::Error;

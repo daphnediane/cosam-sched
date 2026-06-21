@@ -85,13 +85,17 @@ The JSON object has the same schema as the widget JSON display format (see
   "rooms": [ … ],
   "panelTypes": { … },
   "timeline": [ … ],
-  "presenters": [ … ]
+  "presenters": [ … ],
+  "dayTimeline": [ … ],
+  "halfDayTimeline": [ … ]
 }
 ```
 
-The `rooms`, `panelTypes`, `timeline`, and `presenters` arrays/objects are identical
-to their counterparts in the widget JSON format. See `widget-json-format.md` for their
-full schemas.
+The `rooms`, `panelTypes`, `timeline`, `presenters`, `dayTimeline`, and
+`halfDayTimeline` arrays/objects are identical to their counterparts in the widget
+JSON format. See `widget-json-format.md` for their full schemas. `dayTimeline` /
+`halfDayTimeline` are the precomputed day buckets (FEATURE-154) and are omitted
+when there are no scheduled sessions.
 
 ## Part 2: Panel HTML Elements
 

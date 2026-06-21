@@ -87,6 +87,9 @@ window.CosAmCalendar.HtmlEmbedLoader = function (opts) {
         panelTypes: structural.panelTypes,
         timeline: structural.timeline,
         presenters: structural.presenters,
+        // FEATURE-154: precomputed day buckets ride in the structural block.
+        dayTimeline: structural.dayTimeline,
+        halfDayTimeline: structural.halfDayTimeline,
         panels: panels,
       });
     },

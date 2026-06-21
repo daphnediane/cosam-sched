@@ -26,8 +26,8 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::types::{
-    WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter,
-    WidgetRoom, WidgetTimeline,
+    WidgetDaySpan, WidgetExport, WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType,
+    WidgetPresenter, WidgetRoom, WidgetTimeline,
 };
 
 /// Errors that can occur during widget JSON export/import.
@@ -112,6 +112,17 @@ pub fn export_to_widget_json(
     let timeline = export_timeline(schedule, &panel_types, private_export, &timezone)?;
     let presenters = export_presenters(schedule, &panels, private_export)?;
 
+    // Precompute day / half-day buckets over the real (non-break) sessions so
+    // consumers can group by day without re-deriving wall-clock dates from epoch.
+    let is_break = |prefix: Option<&str>| {
+        panel_types
+            .get(prefix.unwrap_or(""))
+            .map(|pt| pt.is_break)
+            .unwrap_or(false)
+    };
+    let day_timeline = compute_day_spans(&panels, &is_break, &timezone, false);
+    let half_day_timeline = compute_day_spans(&panels, &is_break, &timezone, true);
+
     // Only include panel types actually referenced by panels or timeline entries.
     let used_prefixes: HashSet<String> = panels
         .iter()
@@ -162,6 +173,8 @@ pub fn export_to_widget_json(
         panel_types,
         timeline,
         presenters,
+        day_timeline,
+        half_day_timeline,
     })
 }
 
@@ -902,6 +915,161 @@ fn compute_schedule_bounds(
     (start.unwrap_or(fallback), end.unwrap_or(fallback))
 }
 
+/// Early-morning local hour before which a session rolls into the previous day
+/// when there is no clear overnight gap (the "hour" half of the gap-else-hour
+/// rule). A session starting at/after this hour on a new calendar date opens a
+/// new day.
+const DAY_ROLLOVER_HOUR: u32 = 4;
+
+/// Minimum gap (seconds) that counts as an overnight lull and therefore a day
+/// boundary regardless of the wall-clock hour (the "gap" half of the rule).
+/// Matches the overnight-break threshold used for `%NB` synthesis.
+const DAY_ROLLOVER_GAP_SECS: i64 = 4 * 3600;
+
+/// `(start, end_on_day, borrowed_end)` for a set of intervals within a half-open
+/// window: `end_on_day` is the latest instant clamped to `clamp_hi` (the day or
+/// half boundary), `borrowed_end` the true latest instant (past the boundary
+/// when a session spans across it). `None` when nothing overlaps `[lo, hi)`.
+fn window_span(
+    intervals: &[(i64, i64)],
+    lo: i64,
+    hi: i64,
+    clamp_hi: i64,
+) -> Option<(i64, i64, i64)> {
+    let mut start: Option<i64> = None;
+    let mut end_on_day: Option<i64> = None;
+    let mut borrowed: Option<i64> = None;
+    for &(s, e) in intervals {
+        if s < hi && e > lo {
+            let cs = s.max(lo);
+            start = Some(start.map_or(cs, |x| x.min(cs)));
+            end_on_day = Some(end_on_day.map_or(e.min(clamp_hi), |x| x.max(e.min(clamp_hi))));
+            borrowed = Some(borrowed.map_or(e, |x| x.max(e)));
+        }
+    }
+    Some((start?, end_on_day?, borrowed?))
+}
+
+/// Compute the per-day (or AM/PM half-day) buckets over the real (non-break)
+/// scheduled sessions, expressed in `tz_name` (FEATURE-154).
+///
+/// Sessions are grouped into "schedule days" by a gap-else-hour rollover: a new
+/// day begins on a later calendar date only when preceded by an overnight gap
+/// ([`DAY_ROLLOVER_GAP_SECS`]) or once the start reaches [`DAY_ROLLOVER_HOUR`];
+/// otherwise contiguous post-midnight (late-night) sessions stay with the
+/// previous day. Each bucket is labelled by its anchor (evening) calendar day
+/// and carries the epoch range it covers; `end_epoch` is clamped to the
+/// day/half boundary and `borrowed_end_epoch` extends past it when late-night
+/// sessions are borrowed in. For half-day mode, a day with content in both
+/// halves emits `"<Day> AM"`/`"<Day> PM"`; one half emits a single `"<Day>"`.
+fn compute_day_spans(
+    panels: &[WidgetPanel],
+    is_break: &impl Fn(Option<&str>) -> bool,
+    tz_name: &str,
+    half_day: bool,
+) -> Vec<WidgetDaySpan> {
+    use chrono::Timelike;
+
+    let mut intervals: Vec<(i64, i64)> = panels
+        .iter()
+        .filter(|p| !is_break(p.panel_type.as_deref()))
+        .filter_map(|p| p.start_epoch.map(|s| (s, p.end_epoch.unwrap_or(s))))
+        .collect();
+    if intervals.is_empty() {
+        return Vec::new();
+    }
+    intervals.sort_unstable();
+
+    let local = |epoch: i64| crate::value::timezone::epoch_to_local(epoch, tz_name);
+    let local_midnight = |date: chrono::NaiveDate| -> i64 {
+        naive_to_epoch(date.and_hms_opt(0, 0, 0).expect("midnight valid"), tz_name)
+    };
+
+    // 1. Split into overnight-gap-separated runs. (Afternoon gaps split runs too,
+    //    but the runs re-merge by calendar date below, so they add no extra days.)
+    let mut runs: Vec<Vec<(i64, i64)>> = Vec::new();
+    let mut run_end = i64::MIN;
+    for &(s, e) in &intervals {
+        if runs.is_empty() || s - run_end >= DAY_ROLLOVER_GAP_SECS {
+            runs.push(vec![(s, e)]);
+        } else {
+            runs.last_mut().expect("non-empty").push((s, e));
+        }
+        run_end = run_end.max(e);
+    }
+
+    // 2. Assign each session to a schedule-day date. A late-night *tail* — a
+    //    post-midnight session whose run has no session at/after the rollover
+    //    hour on that date (so the run ends in the early hours, followed by a
+    //    gap) — is borrowed into the previous calendar day. Continuous content
+    //    that runs past the rollover into morning is not borrowed: it keeps its
+    //    own date (splitting at midnight).
+    use std::collections::{BTreeMap, HashSet};
+    let mut by_day: BTreeMap<chrono::NaiveDate, Vec<(i64, i64)>> = BTreeMap::new();
+    for run in &runs {
+        let first_date = local(run[0].0).date();
+        let morning_dates: HashSet<chrono::NaiveDate> = run
+            .iter()
+            .filter(|&&(s, _)| local(s).hour() >= DAY_ROLLOVER_HOUR)
+            .map(|&(s, _)| local(s).date())
+            .collect();
+        for &(s, e) in run {
+            let d = local(s).date();
+            let sd = if d == first_date || morning_dates.contains(&d) {
+                d
+            } else {
+                d.pred_opt().unwrap_or(d)
+            };
+            by_day.entry(sd).or_default().push((s, e));
+        }
+    }
+
+    let min_d = *by_day.keys().next().expect("non-empty");
+    let max_d = *by_day.keys().next_back().expect("non-empty");
+
+    let emit = |out: &mut Vec<WidgetDaySpan>, label: String, span: (i64, i64, i64)| {
+        let (start, end_on_day, borrowed) = span;
+        out.push(WidgetDaySpan {
+            label,
+            start_epoch: start,
+            end_epoch: end_on_day,
+            borrowed_end_epoch: (borrowed > end_on_day).then_some(borrowed),
+        });
+    };
+
+    let mut out = Vec::new();
+    for (&day, group) in &by_day {
+        let anchor_mid = local_midnight(day);
+        let next_mid = local_midnight(day.succ_opt().unwrap_or(day));
+        let label = crate::value::timezone::day_label(day, min_d, max_d);
+        // Upper bound for "overlap" is the group's true end (so borrowed
+        // late-night sessions are included); clamps use the calendar boundary.
+        let hi = group.iter().map(|&(_, e)| e).max().expect("non-empty") + 1;
+        if half_day {
+            let noon = naive_to_epoch(
+                day.and_hms_opt(12, 0, 0).expect("noon valid"),
+                tz_name,
+            );
+            // AM never borrows: a session crossing *noon* spans both halves
+            // (clamped at noon), it is not late-night content. Only the PM/day
+            // end side borrows across midnight.
+            let am = window_span(group, anchor_mid, noon, noon).map(|(s, e, _)| (s, e, e));
+            let pm = window_span(group, noon, hi, next_mid);
+            match (am, pm) {
+                (Some(a), Some(p)) => {
+                    emit(&mut out, format!("{label} AM"), a);
+                    emit(&mut out, format!("{label} PM"), p);
+                }
+                (Some(span), None) | (None, Some(span)) => emit(&mut out, label, span),
+                (None, None) => {}
+            }
+        } else if let Some(span) = window_span(group, anchor_mid, hi, next_mid) {
+            emit(&mut out, label, span);
+        }
+    }
+    out
+}
+
 /// Convert a naive wall-clock datetime, interpreted in `tz`, to Unix epoch
 /// seconds. With no timezone the value is treated as UTC. Ambiguous local times
 /// (DST fall-back) resolve to the earliest instant; nonexistent local times (DST
@@ -1239,6 +1407,153 @@ mod tests {
         assert_eq!(p.start_epoch, Some(want));
         assert_eq!(export.meta.start_epoch, want);
         assert_eq!(export.meta.version, 2);
+    }
+
+    fn ep(s: &str) -> i64 {
+        NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+            .unwrap()
+            .and_utc()
+            .timestamp()
+    }
+
+    #[test]
+    fn test_day_and_half_day_timelines() {
+        // 2026-06-01 is a Monday; offsets 0/1 stay in one ISO week → bare labels.
+        let mut sched = Schedule::new();
+        let pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let p_mon = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60)); // Mon 14–15 (PM)
+        let p_tue_am = make_panel(&mut sched, "GP002", Some((1, 9, 0, 0)), Some(60)); // Tue 09–10
+        let p_tue_pm = make_panel(&mut sched, "GP003", Some((1, 16, 0, 0)), Some(60)); // Tue 16–17
+        for p in [p_mon, p_tue_am, p_tue_pm] {
+            link_panel_type(&mut sched, p, pt);
+        }
+
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+
+        let days: Vec<(&str, i64, i64)> = export
+            .day_timeline
+            .iter()
+            .map(|d| (d.label.as_str(), d.start_epoch, d.end_epoch))
+            .collect();
+        assert_eq!(
+            days,
+            vec![
+                ("Monday", ep("2026-06-01T14:00:00"), ep("2026-06-01T15:00:00")),
+                ("Tuesday", ep("2026-06-02T09:00:00"), ep("2026-06-02T17:00:00")),
+            ]
+        );
+
+        let halves: Vec<(&str, i64, i64)> = export
+            .half_day_timeline
+            .iter()
+            .map(|d| (d.label.as_str(), d.start_epoch, d.end_epoch))
+            .collect();
+        assert_eq!(
+            halves,
+            vec![
+                // Monday has afternoon content only → single bare "Monday".
+                ("Monday", ep("2026-06-01T14:00:00"), ep("2026-06-01T15:00:00")),
+                ("Tuesday AM", ep("2026-06-02T09:00:00"), ep("2026-06-02T10:00:00")),
+                ("Tuesday PM", ep("2026-06-02T16:00:00"), ep("2026-06-02T17:00:00")),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_day_timeline_clamps_midnight_crossing() {
+        // A single session running past midnight stays with its anchor day; its
+        // real end clamps to midnight and borrowedEnd carries the true end.
+        let mut sched = Schedule::new();
+        let pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        // Mon 23:00 + 120m → Tue 01:00.
+        let p = make_panel(&mut sched, "GP001", Some((0, 23, 0, 0)), Some(120));
+        link_panel_type(&mut sched, p, pt);
+
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        assert_eq!(export.day_timeline.len(), 1);
+        let d = &export.day_timeline[0];
+        assert_eq!(d.label, "Monday");
+        assert_eq!(d.start_epoch, ep("2026-06-01T23:00:00"));
+        assert_eq!(d.end_epoch, ep("2026-06-02T00:00:00"));
+        assert_eq!(d.borrowed_end_epoch, Some(ep("2026-06-02T01:00:00")));
+    }
+
+    #[test]
+    fn test_day_timeline_borrows_late_night() {
+        // Late-night sessions just past midnight (small gap, before the rollover
+        // hour) belong to the previous day's bucket; a morning session opens the
+        // next day.
+        let mut sched = Schedule::new();
+        let pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let p1 = make_panel(&mut sched, "GP001", Some((0, 20, 0, 0)), Some(180)); // Mon 20:00–23:00
+        let p2 = make_panel(&mut sched, "GP002", Some((1, 0, 30, 0)), Some(60)); // Tue 00:30–01:30
+        let p3 = make_panel(&mut sched, "GP003", Some((1, 10, 0, 0)), Some(60)); // Tue 10:00–11:00
+        for p in [p1, p2, p3] {
+            link_panel_type(&mut sched, p, pt);
+        }
+
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        let days: Vec<(&str, i64, i64, Option<i64>)> = export
+            .day_timeline
+            .iter()
+            .map(|d| (d.label.as_str(), d.start_epoch, d.end_epoch, d.borrowed_end_epoch))
+            .collect();
+        assert_eq!(
+            days,
+            vec![
+                (
+                    "Monday",
+                    ep("2026-06-01T20:00:00"),
+                    ep("2026-06-02T00:00:00"),
+                    Some(ep("2026-06-02T01:30:00")),
+                ),
+                (
+                    "Tuesday",
+                    ep("2026-06-02T10:00:00"),
+                    ep("2026-06-02T11:00:00"),
+                    None,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_day_timeline_no_borrow_when_continuous() {
+        // Continuous programming running past the rollover hour into the morning
+        // is NOT borrowed — it splits at midnight (no extra borrow hours).
+        let mut sched = Schedule::new();
+        let pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let p1 = make_panel(&mut sched, "GP001", Some((0, 22, 0, 0)), Some(60)); // Mon 22–23
+        let p2 = make_panel(&mut sched, "GP002", Some((1, 0, 0, 0)), Some(60)); // Tue 00–01
+        let p3 = make_panel(&mut sched, "GP003", Some((1, 2, 0, 0)), Some(60)); // Tue 02–03
+        let p4 = make_panel(&mut sched, "GP004", Some((1, 5, 0, 0)), Some(60)); // Tue 05–06 (>= rollover)
+        for p in [p1, p2, p3, p4] {
+            link_panel_type(&mut sched, p, pt);
+        }
+
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        let days: Vec<(&str, i64, i64, Option<i64>)> = export
+            .day_timeline
+            .iter()
+            .map(|d| (d.label.as_str(), d.start_epoch, d.end_epoch, d.borrowed_end_epoch))
+            .collect();
+        assert_eq!(
+            days,
+            vec![
+                (
+                    "Monday",
+                    ep("2026-06-01T22:00:00"),
+                    ep("2026-06-01T23:00:00"),
+                    None,
+                ),
+                (
+                    "Tuesday",
+                    ep("2026-06-02T00:00:00"),
+                    ep("2026-06-02T06:00:00"),
+                    None,
+                ),
+            ]
+        );
     }
 
     #[test]

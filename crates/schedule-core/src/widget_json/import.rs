@@ -808,6 +808,8 @@ mod tests {
             presenters,
             timeline: Vec::new(),
             panels,
+            day_timeline: Vec::new(),
+            half_day_timeline: Vec::new(),
         };
 
         let schedule = import_from_widget_json(&widget).unwrap();
@@ -889,6 +891,8 @@ mod tests {
             presenters,
             timeline: Vec::new(),
             panels,
+            day_timeline: Vec::new(),
+            half_day_timeline: Vec::new(),
         };
 
         let schedule = import_from_widget_json(&widget).unwrap();
@@ -974,6 +978,8 @@ mod tests {
             presenters,
             timeline: Vec::new(),
             panels,
+            day_timeline: Vec::new(),
+            half_day_timeline: Vec::new(),
         };
 
         let schedule = import_from_widget_json(&widget).unwrap();
@@ -1076,6 +1082,8 @@ mod tests {
             presenters,
             timeline: Vec::new(),
             panels,
+            day_timeline: Vec::new(),
+            half_day_timeline: Vec::new(),
         };
 
         let schedule = import_from_widget_json(&widget).unwrap();

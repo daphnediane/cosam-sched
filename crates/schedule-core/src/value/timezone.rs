@@ -202,6 +202,28 @@ pub fn date_midnight(date: NaiveDate) -> NaiveDateTime {
     date.and_hms_opt(0, 0, 0).expect("midnight is always valid")
 }
 
+/// Format a calendar day's weekday label, disambiguated against the schedule's
+/// date range (FEATURE-154). Mirrors the print layout's day headings so the
+/// precomputed widget day timelines read identically:
+///
+/// - within one ISO week: just the weekday (`"Friday"`)
+/// - same month, multiple weeks: weekday + day-of-month (`"Friday 5"`)
+/// - spanning months: weekday + month + day (`"Friday Jun 5"`)
+#[must_use]
+pub fn day_label(date: NaiveDate, min_date: NaiveDate, max_date: NaiveDate) -> String {
+    use chrono::Datelike;
+    let weekday = date.format("%A").to_string();
+    let same_week = min_date.iso_week() == max_date.iso_week();
+    let same_month = min_date.year() == max_date.year() && min_date.month() == max_date.month();
+    if same_week {
+        weekday
+    } else if same_month {
+        format!("{} {}", weekday, date.day())
+    } else {
+        format!("{} {} {}", weekday, date.format("%b"), date.day())
+    }
+}
+
 /// Convert Unix epoch seconds to a naive wall-clock datetime expressed in the
 /// named IANA timezone (FEATURE-154). An empty or unrecognized zone is treated
 /// as UTC, mirroring the export-side interpretation. This is the inverse of the

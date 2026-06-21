@@ -14,6 +14,7 @@
 
 pub use schedule_widget_format::{
     ScheduleBrand, ScheduleBrandColors, ScheduleBrandMeta, ScheduleConfig, SchedulePrintFont,
-    SchedulePrintFontSizes, SchedulePrintFonts, SchedulePrintFormat, WidgetExport, WidgetMeta,
-    WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter, WidgetRoom, WidgetTimeline,
+    SchedulePrintFontSizes, SchedulePrintFonts, SchedulePrintFormat, WidgetDaySpan, WidgetExport,
+    WidgetMeta, WidgetPanel, WidgetPanelColors, WidgetPanelType, WidgetPresenter, WidgetRoom,
+    WidgetTimeline,
 };

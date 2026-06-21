@@ -181,6 +181,35 @@ pub struct WidgetTimeline {
     pub note: Option<String>,
 }
 
+/// A precomputed day (or half-day) bucket spanning the schedule (FEATURE-154).
+///
+/// Carries the local display `label` and the epoch-second range the bucket
+/// covers. `start_epoch`/`end_epoch` are the earliest/latest content instants
+/// within the bucket, **clamped to the bucket boundary** (local midnight for
+/// days, local noon for the AM/PM split) when a session spans across it — so a
+/// session that runs past midnight contributes the boundary instant rather than
+/// its true edge. Consumers use these to bucket panels by day without
+/// re-deriving wall-clock dates from epochs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetDaySpan {
+    /// Local day label, e.g. `"Friday"`, `"Saturday AM"`, `"Friday Jun 5"`.
+    pub label: String,
+    /// Earliest content instant in the bucket (Unix epoch seconds).
+    pub start_epoch: i64,
+    /// Latest content instant on the bucket's own calendar day — clamped to the
+    /// day/half boundary (local midnight, or next midnight for a PM half).
+    pub end_epoch: i64,
+    /// Latest content instant *including borrowed early-morning sessions* that
+    /// belong to this day by the rollover convention (late-night programming
+    /// past midnight is grouped with the previous day). Present only when it
+    /// extends past `end_epoch`; absent when nothing is borrowed. The borrowed
+    /// sessions keep their own real dates for display — only the day *bucket*
+    /// borrows them. FEATURE-154.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub borrowed_end_epoch: Option<i64>,
+}
+
 /// Presenter entry (DisplayPresenter).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -214,6 +243,14 @@ pub struct WidgetExport {
     pub timeline: Vec<WidgetTimeline>,
     #[serde(default)]
     pub presenters: Vec<WidgetPresenter>,
+    /// Precomputed per-day buckets (one entry per content day). FEATURE-154.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub day_timeline: Vec<WidgetDaySpan>,
+    /// Precomputed AM/PM buckets: a day with content in both halves yields
+    /// `"<Day> AM"` and `"<Day> PM"`; a day with content in only one half yields
+    /// a single `"<Day>"` entry. FEATURE-154.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub half_day_timeline: Vec<WidgetDaySpan>,
 }
 
 impl WidgetExport {

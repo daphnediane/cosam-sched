@@ -11,7 +11,9 @@ This document describes the JSON format used by the Cosplay America calendar wid
   "rooms": Array<Room>,
   "panelTypes": Object<PanelType>,
   "timeline": Array<TimelineEntry>,
-  "presenters": Array<DisplayPresenter>
+  "presenters": Array<DisplayPresenter>,
+  "dayTimeline": Array<WidgetDaySpan>,
+  "halfDayTimeline": Array<WidgetDaySpan>
 }
 ```
 
@@ -356,6 +358,64 @@ When converting from spreadsheet, this array is populated with panels whose pane
     "note": null
   }
 ]
+```
+
+## Day Timelines
+
+`dayTimeline` and `halfDayTimeline` are precomputed day buckets the exporter
+generates from the scheduled (non-break) sessions (FEATURE-154). They let
+consumers group panels by day — and drive day tabs / grid axes — without
+re-deriving wall-clock dates from epochs.
+
+Each entry is a `WidgetDaySpan`:
+
+| Field             | Type    | Description                                                       |
+| ----------------- | ------- | ---------------------------------------------------------------- |
+| `label`           | string  | Local day label (disambiguated; see below)                       |
+| `startEpoch`      | integer | Earliest content instant in the bucket (epoch secs)              |
+| `endEpoch`        | integer | Latest content instant on the bucket's calendar day (epoch secs) |
+| `borrowedEndEpoch`| integer | Latest instant including borrowed late-night content; omitted when nothing is borrowed |
+
+- **`dayTimeline`** has one entry per content day.
+- **`halfDayTimeline`** splits each day at local noon: a day with content in
+  both halves yields `"<Day> AM"` and `"<Day> PM"`; a day with content in only
+  one half yields a single `"<Day>"` entry.
+- **Late-night borrowing:** late-night sessions just past midnight are grouped
+  with the previous day (a 12:30 AM Saturday panel belongs to Friday's bucket).
+  A session is borrowed only when it is a late-night *tail* — its programming run
+  has no session at/after the rollover hour (local 4 AM) on that date and is
+  followed by an overnight gap (≥ 4 h). Continuous programming that runs past the
+  rollover into the morning is **not** borrowed; it splits at midnight. Borrowed
+  sessions keep their own real dates for display — only the day *bucket* borrows
+  them; `endEpoch` stays clamped to midnight and `borrowedEndEpoch` carries the
+  extended end.
+- **Boundary clamping:** when a session spans across local midnight (or noon for
+  the AM/PM split) `endEpoch` is the boundary instant, not the session's true
+  edge — e.g. a panel running 23:00→01:00 has `endEpoch` at `00:00` and
+  `borrowedEndEpoch` at `01:00`.
+- **Label disambiguation:** within one ISO week labels are the bare weekday
+  (`"Friday"`); across weeks in one month they add the day-of-month
+  (`"Friday 5"`); across months they add the month (`"Friday Jun 5"`). This
+  matches the print layout's day headings.
+
+Both arrays are omitted when there are no scheduled sessions.
+
+### Day Timelines Example
+
+```json
+{
+  "dayTimeline": [
+    { "label": "Friday", "startEpoch": 1782504000, "endEpoch": 1782529200 },
+    { "label": "Saturday", "startEpoch": 1782565200, "endEpoch": 1782615600 },
+    { "label": "Sunday", "startEpoch": 1782651600, "endEpoch": 1782669600 }
+  ],
+  "halfDayTimeline": [
+    { "label": "Friday", "startEpoch": 1782504000, "endEpoch": 1782529200 },
+    { "label": "Saturday AM", "startEpoch": 1782565200, "endEpoch": 1782588600 },
+    { "label": "Saturday PM", "startEpoch": 1782588600, "endEpoch": 1782615600 },
+    { "label": "Sunday", "startEpoch": 1782651600, "endEpoch": 1782669600 }
+  ]
+}
 ```
 
 ## Presenters
