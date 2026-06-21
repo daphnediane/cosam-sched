@@ -45,6 +45,23 @@ pub struct WidgetMeta {
     /// Empty when there is no timezone or it needs no `VTIMEZONE` (e.g. UTC).
     #[serde(default)]
     pub vtimezone: String,
+    /// UTC offset in minutes at [`Self::start_epoch`] (e.g. -240 for EDT,
+    /// 330 for IST UTC+5:30). Lets consumers recover the local minute-of-hour
+    /// from epoch arithmetic without a full timezone database lookup. Absent
+    /// when timezone is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz_offset_minutes: Option<i32>,
+    /// Epoch second at which the UTC offset changes (DST transition) within the
+    /// schedule window [`Self::start_epoch`..=`Self::end_epoch`]. Consumers
+    /// apply [`Self::tz_offset_minutes`] before this instant and
+    /// [`Self::tz_dst_offset_minutes`] from it onward. Absent when no DST
+    /// transition occurs in the window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz_dst_transition_epoch: Option<i64>,
+    /// UTC offset in minutes after [`Self::tz_dst_transition_epoch`]. Absent
+    /// when no DST transition occurs in the window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz_dst_offset_minutes: Option<i32>,
 }
 
 /// Panel entry (one schedulable session).

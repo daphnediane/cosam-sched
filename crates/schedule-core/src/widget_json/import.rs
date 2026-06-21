@@ -803,6 +803,7 @@ mod tests {
                 end_epoch: 0,
                 timezone: String::new(),
                 vtimezone: String::new(),
+                ..Default::default()
             },
             panel_types,
             rooms,
@@ -887,6 +888,7 @@ mod tests {
                 end_epoch: 0,
                 timezone: String::new(),
                 vtimezone: String::new(),
+                ..Default::default()
             },
             panel_types,
             rooms: Vec::new(),
@@ -975,6 +977,7 @@ mod tests {
                 end_epoch: 0,
                 timezone: String::new(),
                 vtimezone: String::new(),
+                ..Default::default()
             },
             panel_types,
             rooms: Vec::new(),
@@ -1080,6 +1083,7 @@ mod tests {
                 end_epoch: 0,
                 timezone: String::new(),
                 vtimezone: String::new(),
+                ..Default::default()
             },
             panel_types,
             rooms: Vec::new(),

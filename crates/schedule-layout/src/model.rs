@@ -16,8 +16,8 @@
 //! [`ScheduleData::from_json`] for standalone use.
 
 pub use schedule_widget_format::{
-    WidgetExport as ScheduleData, WidgetMeta as Meta, WidgetPanel as Panel,
-    WidgetPanelColors as PanelTypeColors, WidgetPanelType as PanelType,
+    WidgetDaySpan as DaySpan, WidgetExport as ScheduleData, WidgetMeta as Meta,
+    WidgetPanel as Panel, WidgetPanelColors as PanelTypeColors, WidgetPanelType as PanelType,
     WidgetPresenter as Presenter, WidgetRoom as Room, WidgetTimeline as TimelineEntry,
 };
 

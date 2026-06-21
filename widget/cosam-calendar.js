@@ -201,10 +201,6 @@ import QRCode from 'qrcode';
   // Using absolute epoch-minutes avoids the weekday-collision in the old
   // t${dayNum}${HH}${MM} scheme (same weekday+time on different weeks collide)
   // and requires no Date parsing.
-  // Note: for non-integer-hour timezone offsets (e.g. IST UTC+5:30) the epoch
-  // modulo used in the GCD unit calculation will see a 30-min component even
-  // for on-the-hour schedule events, producing a 30-min grid instead of 60-min.
-  // This is a cosmetic tradeoff accepted for simpler epoch-only arithmetic.
   function slotEpochToName(slotEpoch) {
     return 't' + Math.floor(slotEpoch / 60);
   }
@@ -234,6 +230,19 @@ import QRCode from 'qrcode';
     }
   }
 
+  // Get the local minute-of-hour (0–59) for a slot epoch using precomputed TZ
+  // offsets from meta. Corrects for non-integer-hour timezone offsets (e.g. IST
+  // UTC+5:30) where pure epoch modulo gives the wrong local minute. When
+  // `tzOffsetMinutes` is null/undefined, falls back to plain epoch modulo.
+  // `dstTransitionEpoch` / `dstOffsetMinutes` may be null for zones with no DST
+  // transition in the schedule window.
+  function localMinuteOfHour(slotEpoch, tzOffsetMinutes, dstTransitionEpoch, dstOffsetMinutes) {
+    const offsetSecs = ((dstTransitionEpoch != null && slotEpoch >= dstTransitionEpoch)
+      ? dstOffsetMinutes
+      : (tzOffsetMinutes ?? 0)) * 60;
+    return ((slotEpoch + offsetSecs) % 3600 + 3600) % 3600 / 60;
+  }
+
   // Fill intermediate slot epochs from startEpoch to endEpoch at unitSecs
   // intervals (both boundaries inclusive). Pure epoch arithmetic — no ISO
   // parsing, no Date objects, no hardcoded reference dates.
@@ -249,10 +258,10 @@ import QRCode from 'qrcode';
 
   // Build the full set of slot epochs for fillPage (print) mode: all event
   // start/end boundaries plus intermediate unit-interval epochs so the grid
-  // has an even time axis. Unit is the GCD of minute-of-epoch-hour components
-  // across regular events, clamped to 15–60 min. See slotEpochToName for the
-  // timezone offset tradeoff note.
-  function evenSlotEpochs(events, regularEvents) {
+  // has an even time axis. Unit is the GCD of local minute-of-hour components
+  // across regular events (using precomputed TZ offsets for correctness with
+  // non-integer-hour zones like IST UTC+5:30), clamped to 15–60 min.
+  function evenSlotEpochs(events, regularEvents, tzOffsetMinutes, dstTransitionEpoch, dstOffsetMinutes) {
     const out = new Set();
     for (const e of events) {
       if (typeof e.startEpoch === 'number') out.add(epochToSlotEpoch(e.startEpoch));
@@ -265,7 +274,7 @@ import QRCode from 'qrcode';
     for (const e of regularEvents) {
       for (const ep of [e.startEpoch, e.endEpoch]) {
         if (typeof ep === 'number') {
-          const m = (epochToSlotEpoch(ep) % 3600) / 60;
+          const m = localMinuteOfHour(epochToSlotEpoch(ep), tzOffsetMinutes, dstTransitionEpoch, dstOffsetMinutes);
           if (m > 0) unitMinutes = gcd(unitMinutes, m);
         }
       }
@@ -1128,6 +1137,9 @@ import QRCode from 'qrcode';
       // are timezone-correct and no longer depend on the emitted ISO strings.
       // Pre-v2 data without epoch keeps its existing naive ISO strings.
       const tzName = (data.meta && data.meta.timezone) || 'UTC';
+      const tzOffsetMinutes = (data.meta && data.meta.tzOffsetMinutes) ?? null;
+      const tzDstTransitionEpoch = (data.meta && data.meta.tzDstTransitionEpoch) ?? null;
+      const tzDstOffsetMinutes = (data.meta && data.meta.tzDstOffsetMinutes) ?? null;
       const localizedPanels = panels.map(p => {
         if (typeof p.startEpoch !== 'number' && typeof p.endEpoch !== 'number') return p;
         const out = { ...p };
@@ -1155,7 +1167,10 @@ import QRCode from 'qrcode';
         timeline: localizedTimeline,
         presenters,
         rooms,
-        presenterToPanels
+        presenterToPanels,
+        tzOffsetMinutes,
+        tzDstTransitionEpoch,
+        tzDstOffsetMinutes,
       };
     }
 
@@ -2150,6 +2165,9 @@ import QRCode from 'qrcode';
       // handle the schedule timezone via the precomputed startEpoch values.
       const tz = this.state.data && this.state.data.meta && this.state.data.meta.timezone || '';
       const dayTimeline = (this.state.data && this.state.data.dayTimeline) || [];
+      const tzOffsetMinutes = this.state.data?.tzOffsetMinutes ?? null;
+      const tzDstTransitionEpoch = this.state.data?.tzDstTransitionEpoch ?? null;
+      const tzDstOffsetMinutes = this.state.data?.tzDstOffsetMinutes ?? null;
 
       const eventSlotEpochs = new Set();
       for (const e of events) {
@@ -2157,7 +2175,7 @@ import QRCode from 'qrcode';
         if (typeof e.endEpoch === 'number') eventSlotEpochs.add(epochToSlotEpoch(e.endEpoch));
       }
       const allSlotEpochs = fillPage
-        ? evenSlotEpochs(events, regularEvents)
+        ? evenSlotEpochs(events, regularEvents, tzOffsetMinutes, tzDstTransitionEpoch, tzDstOffsetMinutes)
         : [...eventSlotEpochs].sort((a, b) => a - b);
 
       // CSS grid-line names: epoch-minutes prefixed with 't' (unique across all
@@ -2266,10 +2284,9 @@ import QRCode from 'qrcode';
         const slotRegular = slotEvents.filter(e => !this.state._isBreakEvent(e));
         const slotBreaks = slotEvents.filter(e => this.state._isBreakEvent(e));
 
-        // Half-hour slot: slot epoch is not on an exact hour boundary.
-        // (For non-integer-hour TZ offsets this may fire on on-the-hour events
-        // — see slotEpochToName comment. Accepted cosmetic tradeoff.)
-        const isHalfHour = slotEpoch % 3600 !== 0;
+        // Half-hour slot: local minute-of-hour is non-zero. Uses precomputed TZ
+        // offsets so non-integer-hour zones (e.g. IST UTC+5:30) are handled correctly.
+        const isHalfHour = localMinuteOfHour(slotEpoch, tzOffsetMinutes, tzDstTransitionEpoch, tzDstOffsetMinutes) !== 0;
 
         // Build time header with split time format for aligned display
         const timeHeader = el('div', {

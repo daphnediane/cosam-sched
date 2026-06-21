@@ -71,7 +71,9 @@ pub(crate) fn render_time_grouped_panels<'a>(
     // Collect unique days for smart label generation
     let day_strings: std::collections::HashSet<String> = panels
         .iter()
-        .filter_map(|p| crate::model::panel_start_iso(p, tz).map(|s| s[..10.min(s.len())].to_string()))
+        .filter_map(|p| {
+            crate::model::panel_start_iso(p, tz).map(|s| s[..10.min(s.len())].to_string())
+        })
         .collect();
     let all_days: Vec<&str> = day_strings.iter().map(|s| s.as_str()).collect();
 
@@ -217,7 +219,9 @@ pub(crate) fn render_panel_list<'a>(
 
     let day_strings: HashSet<String> = ordered
         .iter()
-        .filter_map(|p| crate::model::panel_start_iso(p, tz).map(|s| s[..10.min(s.len())].to_string()))
+        .filter_map(|p| {
+            crate::model::panel_start_iso(p, tz).map(|s| s[..10.min(s.len())].to_string())
+        })
         .collect();
     let all_days: Vec<&str> = day_strings.iter().map(|s| s.as_str()).collect();
 
@@ -276,7 +280,10 @@ pub(crate) fn render_panel_list<'a>(
 
         // Plain time strings ("2 PM", "1:30 PM", "Noon"), joined into a single
         // "2 PM – 3 PM" range in one left-aligned cell.
-        let start = start_iso.as_deref().map(time_fmt::format_time).unwrap_or_default();
+        let start = start_iso
+            .as_deref()
+            .map(time_fmt::format_time)
+            .unwrap_or_default();
         let end = crate::model::panel_end_iso(panel, tz)
             .as_deref()
             .map(time_fmt::format_time)

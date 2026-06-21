@@ -335,6 +335,7 @@ mod tests {
                 end_epoch: 1_782_684_000,
                 timezone: "America/New_York".to_string(),
                 vtimezone: String::new(),
+                ..Default::default()
             },
             rooms: vec![WidgetRoom {
                 uid: 1,

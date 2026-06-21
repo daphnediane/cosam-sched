@@ -224,6 +224,58 @@ pub fn day_label(date: NaiveDate, min_date: NaiveDate, max_date: NaiveDate) -> S
     }
 }
 
+/// Compute the UTC offset(s) within a schedule window.
+///
+/// Returns `Some((base_minutes, dst_transition))` where:
+/// - `base_minutes` is the total UTC offset in minutes at `start_epoch`
+///   (e.g. -240 for EDT, 330 for IST UTC+5:30)
+/// - `dst_transition` is `Some((transition_epoch, new_offset_minutes))` when a
+///   DST transition occurs within `[start_epoch, end_epoch]`, else `None`
+///
+/// Returns `None` when `tz_name` is unrecognized or empty.
+///
+/// The binary search refines the transition instant to the nearest minute.
+/// Conference schedules rarely span a DST boundary, but the function handles
+/// the case correctly when they do.
+#[must_use]
+pub fn tz_window_offsets(
+    start_epoch: i64,
+    end_epoch: i64,
+    tz_name: &str,
+) -> Option<(i32, Option<(i64, i32)>)> {
+    let tz = parse_tz(tz_name)?;
+
+    let offset_minutes = |epoch: i64| -> i32 {
+        let utc = chrono::DateTime::from_timestamp(epoch, 0)
+            .unwrap_or_default()
+            .naive_utc();
+        let off = tz.offset_from_utc_datetime(&utc);
+        let total = off.base_utc_offset() + off.dst_offset();
+        (total.num_seconds() / 60) as i32
+    };
+
+    let start_off = offset_minutes(start_epoch);
+    let end_off = offset_minutes(end_epoch);
+
+    if start_off == end_off {
+        return Some((start_off, None));
+    }
+
+    // Binary-search the transition to the nearest minute.
+    let mut lo = start_epoch;
+    let mut hi = end_epoch;
+    while hi - lo > 60 {
+        let mid = lo + (hi - lo) / 2;
+        if offset_minutes(mid) == start_off {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    // `hi` is the first epoch at the new offset.
+    Some((start_off, Some((hi, offset_minutes(hi)))))
+}
+
 /// Convert Unix epoch seconds to a naive wall-clock datetime expressed in the
 /// named IANA timezone (FEATURE-154). An empty or unrecognized zone is treated
 /// as UTC, mirroring the export-side interpretation. This is the inverse of the
@@ -249,6 +301,28 @@ pub fn epoch_to_local_iso(epoch: i64, tz_name: &str) -> String {
     epoch_to_local(epoch, tz_name)
         .format("%Y-%m-%dT%H:%M:%S")
         .to_string()
+}
+
+/// Parse a local wall-clock ISO datetime string (`%Y-%m-%dT%H:%M` or
+/// `%Y-%m-%dT%H:%M:%S`) expressed in the named timezone and convert to a
+/// minute-aligned Unix epoch second. An unrecognized timezone falls back to
+/// interpreting the datetime as UTC. Returns `None` if the string fails to
+/// parse.
+#[must_use]
+pub fn local_iso_to_epoch(iso: &str, tz_name: &str) -> Option<i64> {
+    use chrono::offset::LocalResult;
+    use chrono::TimeZone;
+    let dt = chrono::NaiveDateTime::parse_from_str(iso, "%Y-%m-%dT%H:%M")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(iso, "%Y-%m-%dT%H:%M:%S"))
+        .ok()?;
+    let epoch = match parse_tz(tz_name) {
+        Some(tz) => match tz.from_local_datetime(&dt) {
+            LocalResult::Single(t) | LocalResult::Ambiguous(t, _) => t.timestamp(),
+            LocalResult::None => dt.and_utc().timestamp(),
+        },
+        None => dt.and_utc().timestamp(),
+    };
+    Some((epoch / 60) * 60)
 }
 
 #[cfg(test)]
@@ -325,5 +399,51 @@ mod tests {
         assert!(vt.contains("TZOFFSETFROM:-0500"));
         assert!(vt.contains("TZOFFSETTO:-0400"));
         assert!(vt.contains("BEGIN:DAYLIGHT"));
+    }
+
+    fn ep(s: &str) -> i64 {
+        use chrono::NaiveDateTime;
+        NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+            .unwrap()
+            .and_utc()
+            .timestamp()
+    }
+
+    #[test]
+    fn tz_window_offsets_no_transition() {
+        // Late June in New York is fully EDT (UTC-4 = -240 min). No transition.
+        let start = ep("2026-06-26T09:00:00");
+        let end = ep("2026-06-28T18:00:00");
+        let result = tz_window_offsets(start, end, "America/New_York");
+        assert_eq!(result, Some((-240, None)));
+    }
+
+    #[test]
+    fn tz_window_offsets_half_hour_zone() {
+        // IST (India Standard Time, UTC+5:30 = +330 min) has no DST.
+        let start = ep("2026-06-26T03:30:00"); // 09:00 IST
+        let end = ep("2026-06-28T12:30:00"); // 18:00 IST
+        let result = tz_window_offsets(start, end, "Asia/Kolkata");
+        assert_eq!(result, Some((330, None)));
+    }
+
+    #[test]
+    fn tz_window_offsets_dst_transition() {
+        // US Eastern: 2026-03-08 clocks spring forward from EST (-300) to EDT (-240).
+        let start = ep("2026-03-07T06:00:00"); // before transition (UTC midnight)
+        let end = ep("2026-03-09T06:00:00"); // after transition
+        let result = tz_window_offsets(start, end, "America/New_York");
+        let (base_off, dst) = result.expect("should detect transition");
+        assert_eq!(base_off, -300); // EST
+        let (trans_ep, new_off) = dst.expect("should find DST transition");
+        assert_eq!(new_off, -240); // EDT
+                                   // Transition is 2026-03-08 07:00 UTC (02:00 local EST + 5h = 07:00 UTC)
+        assert!(trans_ep > start && trans_ep < end);
+    }
+
+    #[test]
+    fn tz_window_offsets_unknown_zone() {
+        let result = tz_window_offsets(0, 3600, "Not/AZone");
+        assert_eq!(result, None);
     }
 }

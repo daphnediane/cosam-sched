@@ -161,6 +161,16 @@ pub fn export_to_widget_json(
         })
         .unwrap_or_default();
 
+    // Precomputed UTC offset(s) for the schedule window. Consumers (e.g. the JS
+    // widget's evenSlotEpochs) use these to recover the local minute-of-hour
+    // from epoch arithmetic without a full timezone database.
+    let (tz_offset_minutes, tz_dst_transition_epoch, tz_dst_offset_minutes) =
+        match crate::value::timezone::tz_window_offsets(start_epoch, end_epoch, &timezone) {
+            Some((base, None)) => (Some(base), None, None),
+            Some((base, Some((ep, new_off)))) => (Some(base), Some(ep), Some(new_off)),
+            None => (None, None, None),
+        };
+
     let meta = WidgetMeta {
         title: title.to_string(),
         version: 2,
@@ -175,6 +185,9 @@ pub fn export_to_widget_json(
         end_epoch,
         timezone,
         vtimezone,
+        tz_offset_minutes,
+        tz_dst_transition_epoch,
+        tz_dst_offset_minutes,
     };
 
     Ok(WidgetExport {

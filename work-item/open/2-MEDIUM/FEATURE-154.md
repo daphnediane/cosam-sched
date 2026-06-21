@@ -42,6 +42,120 @@ Migration is staged to keep the build green at every step:
 4. **Phase 4:** Rename the epoch fields back to the canonical `startTime`/`endTime`
    keys (now integers).
 
+## Implementation Details
+
+### Completed — Even time axis infrastructure (schedule-layout + schedule-core)
+
+The Rust side of the even-time-axis grid (needed by the simple print and the
+Typst layout) was plumbed through `schedule-layout/src/timegrid.rs` and
+`schedule-core/src/value/timezone.rs`:
+
+- `TimeSlot` gained an `epoch: i64` field (minute-aligned Unix epoch) alongside
+  the ISO `key` string.
+- `GridLayout::compute_even` added: fills intermediate time slots at the GCD
+  of the local minute-of-hour across regular events (clamped 15–60 min), using
+  precomputed TZ offsets from `WidgetMeta` so IST (UTC+5:30) and other
+  non-integer-hour zones are handled correctly.
+- `is_major` is now computed via epoch arithmetic
+  `(epoch + tz_offset_secs) % 3600 == 0` using the precomputed TZ offset (and
+  DST transition) from `WidgetMeta`, replacing the fragile ISO-suffix check.
+- Private helpers added: `slot_epoch`, `is_major_slot`, `gcd`, `grid_unit_secs`.
+- `local_iso_to_epoch(iso, tz_name) -> Option<i64>` added to
+  `schedule-core/src/value/timezone.rs` (inverse of `epoch_to_local_iso`).
+
+### Completed — Epoch-window refactor in `document.rs`
+
+Section window bounds in `schedule-layout/src/document.rs` are now epoch `i64`
+throughout, and the Day/HalfDay splits consume the precomputed `day_timeline` /
+`half_day_timeline` (bucketing by `panel.day_key`). `Timeline`/`Custom` splits
+and `spanning_into` compare epochs directly. `group_by_day`, `unique_days`, and
+`split_halves` were removed.
+
+**Behavior note:** the only render change is the half-day schedule grid
+(`schedule-tabloid`): single-half days now read `"Thursday"`/`"Friday"` (the
+timeline label) instead of `"Thursday PM"`/`"Friday PM"`, and each half's grid
+opens at its first content (span-clamped) rather than forcing an empty
+Noon/midnight band. All day-split outputs render byte-identical. This is the
+intended effect of consuming the timelines (tighter, cleaner grids).
+
+Original plan (for reference):
+
+**Type changes:**
+
+- `TimedSection<'a>` type alias: change the two `Option<String>` window fields
+  to `Option<i64>`.
+- `Section.window_start / window_end`: `Option<String>` → `Option<i64>`.
+- `GridLayout.window_start / window_end`: `Option<String>` → `Option<i64>`.
+- `GridLayout::compute` / `compute_even` parameters: `Option<&str>` →
+  `Option<i64>` (the `local_iso_to_epoch` call currently done inside
+  `compute_inner` moves to callers).
+
+**`TimeSplit::Day` — use `data.day_timeline`:**
+
+- Replace `group_by_day(panels, tz)` + ISO date-string grouping with iteration
+  over `data.day_timeline` (`Vec<WidgetDaySpan>`).
+- Each span's `start_epoch` / `borrowed_end_epoch.unwrap_or(end_epoch)` forms
+  the epoch filter window; panels where `p.start_epoch` falls in that range
+  belong to the span.
+- Day sections have no grid clipping: `win_start = None, win_end = None`.
+
+**`TimeSplit::HalfDay` — use `data.half_day_timeline`:**
+
+- Replace `split_halves` (which builds a `format!("{}T12:00", date)` ISO noon
+  string) with iteration over `data.half_day_timeline`.
+- AM span: `win_end = Some(span.end_epoch)` (which is already clamped to the
+  noon epoch by `compute_day_spans`). `win_start = None`.
+- PM span: `win_start = Some(am_span.end_epoch)` from the corresponding AM
+  span (the noon epoch), `win_end = None`. When there is no AM span (pure PM
+  day), `win_start = None`.
+- The `split_halves` helper can be deleted.
+
+**`TimeSplit::Timeline` — use `t.start_epoch` directly:**
+
+- Replace `timeline_start_iso(t, tz)` (which converts `start_epoch` → ISO)
+  with `t.start_epoch` in `split_on_timeline`.
+- `tl_boundaries` becomes `Vec<(i64, &str)>` (epoch, label).
+- `section_label_for` compares `p.start_epoch` against boundary epochs (no
+  ISO conversion).
+- `section_keys` windows become `Vec<(String, Option<i64>, Option<i64>)>`.
+- Sort is by epoch (already guaranteed monotonic from export order).
+
+**`TimeSplit::Custom` — epoch-based slot windows:**
+
+- Parse config ISO strings to epochs once at entry via `local_iso_to_epoch`.
+  Expose `naive_to_epoch(dt: NaiveDateTime, tz_name: &str) -> i64` from
+  `schedule-core/src/value/timezone.rs` as `pub` so
+  `split_on_custom_timeline` can call `parse_loose_datetime` → epoch without
+  an intermediate ISO string.
+- `all_slots` becomes `Vec<(i64, Option<i64>, &str)>` (start_epoch,
+  end_epoch_opt, label).
+- `slot_windows` becomes `Vec<(i64, Option<i64>, &str)>`.
+- `section_label_for` compares `p.start_epoch` against slot epochs.
+- `first_slot_start` becomes an epoch.
+
+**`spanning_into`:**
+
+- Signature: `(all_panels: &[&'a Panel], window_start_epoch: i64) -> Vec<&'a Panel>`.
+- Filter: `p.start_epoch < window_start_epoch && p.end_epoch > window_start_epoch`
+  (no ISO conversion, no `tz` parameter needed).
+
+**Callers:**
+
+- `build_sections` passes `section.window_start` (now `Option<i64>`) directly to
+  `spanning_into` and `GridLayout::compute`.
+- `meta_start_iso` / `meta_end_iso` in `model.rs` are no longer needed by
+  `document.rs` for the Custom timeline path; callers should use
+  `data.meta.start_epoch` / `data.meta.end_epoch` directly.
+
+**Cleanup:**
+
+- `panel_start_iso` / `panel_end_iso` and `timeline_start_iso` in `model.rs`
+  become unused by `document.rs` once the refactor is complete (retain for any
+  other callers, e.g. `blocks/grid.rs`).
+- `group_by_day` / `unique_days` / `split_halves` helpers in `document.rs` can
+  be deleted when no longer called.
+- `local_iso_to_epoch` in `timegrid.rs` import becomes unused (remove).
+
 ## Priority
 
 Medium
