@@ -39,6 +39,8 @@ function _parsePanelElement(el) {
   if (d.capacity !== undefined) panel.capacity = d.capacity;
   if (d.difficulty !== undefined) panel.difficulty = d.difficulty;
   if (d.ticketUrl !== undefined) panel.ticketUrl = d.ticketUrl;
+  // FEATURE-154: precomputed day-bucket key stamped by the exporter.
+  if (d.dayKey) panel.dayKey = d.dayKey;
 
   var descEl = el.querySelector('.cosam-panel-desc');
   if (descEl) panel.description = descEl.textContent.trim();

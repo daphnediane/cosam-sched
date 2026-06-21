@@ -80,7 +80,8 @@ fn build_structural_json(export: &WidgetExport) -> Result<String> {
     if !export.day_timeline.is_empty() {
         obj.insert(
             "dayTimeline".to_string(),
-            serde_json::to_value(&export.day_timeline).context("Failed to serialize dayTimeline")?,
+            serde_json::to_value(&export.day_timeline)
+                .context("Failed to serialize dayTimeline")?,
         );
     }
     if !export.half_day_timeline.is_empty() {
@@ -166,6 +167,10 @@ fn build_panel_attrs(panel: &schedule_core::widget_json::WidgetPanel) -> String 
     }
     if let Some(url) = &panel.ticket_url {
         attrs.push_str(&format!(" data-ticket-url=\"{}\"", escape_attr(url)));
+    }
+    // FEATURE-154: precomputed day-bucket key; omitted for unscheduled panels.
+    if let Some(dk) = &panel.day_key {
+        attrs.push_str(&format!(" data-day-key=\"{}\"", escape_attr(dk)));
     }
 
     attrs
@@ -398,6 +403,26 @@ mod tests {
         assert!(
             html.contains("data-end-epoch=\"1782500400\""),
             "end-epoch attribute"
+        );
+    }
+
+    #[test]
+    fn test_generate_html_day_key_attribute() {
+        // Panel with day_key emits data-day-key; panel without does not.
+        let mut export = minimal_export();
+        export.panels[0].day_key = Some("2026-06-26".to_string());
+        let html = generate_static_schedule_html(&export).unwrap();
+        assert!(
+            html.contains("data-day-key=\"2026-06-26\""),
+            "data-day-key attribute present when day_key is set"
+        );
+
+        // Panel without day_key must not emit the attribute.
+        export.panels[0].day_key = None;
+        let html = generate_static_schedule_html(&export).unwrap();
+        assert!(
+            !html.contains("data-day-key"),
+            "data-day-key attribute absent when day_key is None"
         );
     }
 

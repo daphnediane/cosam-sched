@@ -83,6 +83,14 @@ pub struct WidgetPanel {
     /// End time as Unix epoch seconds. See [`Self::start_epoch`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_epoch: Option<i64>,
+    /// Precomputed day-bucket key (`YYYY-MM-DD`) matching the panel's entry in
+    /// `day_timeline`. Panels borrowed across midnight (late-night programming
+    /// grouped with the previous calendar day by the rollover convention) carry
+    /// the *previous* day's date here, not their wall-clock start date.
+    /// Absent for unscheduled panels and for pre-v2 data that lacks
+    /// `day_timeline`. FEATURE-154.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day_key: Option<String>,
     pub duration: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -195,6 +203,12 @@ pub struct WidgetTimeline {
 pub struct WidgetDaySpan {
     /// Local day label, e.g. `"Friday"`, `"Saturday AM"`, `"Friday Jun 5"`.
     pub label: String,
+    /// Calendar date of this bucket's anchor day in `YYYY-MM-DD` format
+    /// (expressed in the schedule timezone). AM and PM half-day spans for the
+    /// same calendar day share the same `date`. Consumers use this as a stable
+    /// key for day tabs and for matching against `WidgetPanel::day_key`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub date: String,
     /// Earliest content instant in the bucket (Unix epoch seconds).
     pub start_epoch: i64,
     /// Latest content instant on the bucket's own calendar day — clamped to the

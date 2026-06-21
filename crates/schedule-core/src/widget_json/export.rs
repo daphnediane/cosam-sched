@@ -101,7 +101,7 @@ pub fn export_to_widget_json(
     let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
 
     let panel_types = export_panel_types(schedule)?;
-    let panels = export_panels(
+    let mut panels = export_panels(
         schedule,
         &room_uid_map,
         &visible_room_uids,
@@ -122,6 +122,17 @@ pub fn export_to_widget_json(
     };
     let day_timeline = compute_day_spans(&panels, &is_break, &timezone, false);
     let half_day_timeline = compute_day_spans(&panels, &is_break, &timezone, true);
+
+    // Stamp each panel with its precomputed day-bucket key so consumers can
+    // bucket by day without re-implementing the borrow convention.
+    for panel in &mut panels {
+        if let Some(s) = panel.start_epoch {
+            panel.day_key = day_timeline
+                .iter()
+                .find(|d| s >= d.start_epoch && s <= d.borrowed_end_epoch.unwrap_or(d.end_epoch))
+                .map(|d| d.date.clone());
+        }
+    }
 
     // Only include panel types actually referenced by panels or timeline entries.
     let used_prefixes: HashSet<String> = panels
@@ -425,6 +436,7 @@ fn export_panels(
             room_ids,
             start_epoch,
             end_epoch,
+            day_key: None,
             duration,
             description: internal.data.description.clone(),
             note: internal.notes.get_owned(NoteKind::Public),
@@ -490,6 +502,7 @@ fn export_panels(
             room_ids: Vec::new(),
             start_epoch,
             end_epoch,
+            day_key: None,
             duration,
             description: internal.data.description.clone(),
             note: internal.notes.get_owned(NoteKind::Public),
@@ -681,6 +694,7 @@ fn make_break_panel(
         room_ids: room_uids.to_vec(),
         start_epoch: Some(start_epoch),
         end_epoch: Some(end_epoch),
+        day_key: None,
         duration: gap_minutes,
         description: None,
         note: None,
@@ -1027,10 +1041,14 @@ fn compute_day_spans(
     let min_d = *by_day.keys().next().expect("non-empty");
     let max_d = *by_day.keys().next_back().expect("non-empty");
 
-    let emit = |out: &mut Vec<WidgetDaySpan>, label: String, span: (i64, i64, i64)| {
+    let emit = |out: &mut Vec<WidgetDaySpan>,
+                label: String,
+                date: &chrono::NaiveDate,
+                span: (i64, i64, i64)| {
         let (start, end_on_day, borrowed) = span;
         out.push(WidgetDaySpan {
             label,
+            date: date.format("%Y-%m-%d").to_string(),
             start_epoch: start,
             end_epoch: end_on_day,
             borrowed_end_epoch: (borrowed > end_on_day).then_some(borrowed),
@@ -1046,10 +1064,7 @@ fn compute_day_spans(
         // late-night sessions are included); clamps use the calendar boundary.
         let hi = group.iter().map(|&(_, e)| e).max().expect("non-empty") + 1;
         if half_day {
-            let noon = naive_to_epoch(
-                day.and_hms_opt(12, 0, 0).expect("noon valid"),
-                tz_name,
-            );
+            let noon = naive_to_epoch(day.and_hms_opt(12, 0, 0).expect("noon valid"), tz_name);
             // AM never borrows: a session crossing *noon* spans both halves
             // (clamped at noon), it is not late-night content. Only the PM/day
             // end side borrows across midnight.
@@ -1057,14 +1072,14 @@ fn compute_day_spans(
             let pm = window_span(group, noon, hi, next_mid);
             match (am, pm) {
                 (Some(a), Some(p)) => {
-                    emit(&mut out, format!("{label} AM"), a);
-                    emit(&mut out, format!("{label} PM"), p);
+                    emit(&mut out, format!("{label} AM"), &day, a);
+                    emit(&mut out, format!("{label} PM"), &day, p);
                 }
-                (Some(span), None) | (None, Some(span)) => emit(&mut out, label, span),
+                (Some(span), None) | (None, Some(span)) => emit(&mut out, label, &day, span),
                 (None, None) => {}
             }
         } else if let Some(span) = window_span(group, anchor_mid, hi, next_mid) {
-            emit(&mut out, label, span);
+            emit(&mut out, label, &day, span);
         }
     }
     out
@@ -1438,8 +1453,16 @@ mod tests {
         assert_eq!(
             days,
             vec![
-                ("Monday", ep("2026-06-01T14:00:00"), ep("2026-06-01T15:00:00")),
-                ("Tuesday", ep("2026-06-02T09:00:00"), ep("2026-06-02T17:00:00")),
+                (
+                    "Monday",
+                    ep("2026-06-01T14:00:00"),
+                    ep("2026-06-01T15:00:00")
+                ),
+                (
+                    "Tuesday",
+                    ep("2026-06-02T09:00:00"),
+                    ep("2026-06-02T17:00:00")
+                ),
             ]
         );
 
@@ -1452,9 +1475,21 @@ mod tests {
             halves,
             vec![
                 // Monday has afternoon content only → single bare "Monday".
-                ("Monday", ep("2026-06-01T14:00:00"), ep("2026-06-01T15:00:00")),
-                ("Tuesday AM", ep("2026-06-02T09:00:00"), ep("2026-06-02T10:00:00")),
-                ("Tuesday PM", ep("2026-06-02T16:00:00"), ep("2026-06-02T17:00:00")),
+                (
+                    "Monday",
+                    ep("2026-06-01T14:00:00"),
+                    ep("2026-06-01T15:00:00")
+                ),
+                (
+                    "Tuesday AM",
+                    ep("2026-06-02T09:00:00"),
+                    ep("2026-06-02T10:00:00")
+                ),
+                (
+                    "Tuesday PM",
+                    ep("2026-06-02T16:00:00"),
+                    ep("2026-06-02T17:00:00")
+                ),
             ]
         );
     }
@@ -1496,7 +1531,14 @@ mod tests {
         let days: Vec<(&str, i64, i64, Option<i64>)> = export
             .day_timeline
             .iter()
-            .map(|d| (d.label.as_str(), d.start_epoch, d.end_epoch, d.borrowed_end_epoch))
+            .map(|d| {
+                (
+                    d.label.as_str(),
+                    d.start_epoch,
+                    d.end_epoch,
+                    d.borrowed_end_epoch,
+                )
+            })
             .collect();
         assert_eq!(
             days,
@@ -1535,7 +1577,14 @@ mod tests {
         let days: Vec<(&str, i64, i64, Option<i64>)> = export
             .day_timeline
             .iter()
-            .map(|d| (d.label.as_str(), d.start_epoch, d.end_epoch, d.borrowed_end_epoch))
+            .map(|d| {
+                (
+                    d.label.as_str(),
+                    d.start_epoch,
+                    d.end_epoch,
+                    d.borrowed_end_epoch,
+                )
+            })
             .collect();
         assert_eq!(
             days,
@@ -1609,8 +1658,15 @@ mod tests {
         let (rooms, uid_map) = build_room_uid_map(&sched);
         let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels =
-            export_panels(&sched, &uid_map, &visible_room_uids, &panel_types, false, "").unwrap();
+        let panels = export_panels(
+            &sched,
+            &uid_map,
+            &visible_room_uids,
+            &panel_types,
+            false,
+            "",
+        )
+        .unwrap();
 
         let ids: Vec<&str> = panels.iter().map(|p| p.id.as_str()).collect();
         assert!(ids.contains(&"%IB001"), "expected %IB001 in {ids:?}");
@@ -1635,11 +1691,80 @@ mod tests {
         let (rooms, uid_map) = build_room_uid_map(&sched);
         let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels =
-            export_panels(&sched, &uid_map, &visible_room_uids, &panel_types, false, "").unwrap();
+        let panels = export_panels(
+            &sched,
+            &uid_map,
+            &visible_room_uids,
+            &panel_types,
+            false,
+            "",
+        )
+        .unwrap();
 
         let ids: Vec<&str> = panels.iter().map(|p| p.id.as_str()).collect();
         assert!(ids.contains(&"%NB001"), "expected %NB001 in {ids:?}");
+    }
+
+    // Regression: overnight break day_key stamping when the %NB starts exactly
+    // at or just after midnight. The stamping condition uses inclusive `<=` so
+    // a %NB whose start_epoch equals the previous day's end_epoch (or
+    // borrowed_end_epoch) must still resolve to the previous day's date.
+
+    #[test]
+    fn test_overnight_break_day_key_ends_at_midnight() {
+        // GP001 runs 22:00 → 00:00 Tue (ends exactly at midnight). Monday's
+        // day_timeline entry has end_epoch = midnight and no borrowed_end_epoch
+        // (borrowed == end, so the extension is zero). The %NB starts at midnight;
+        // the inclusive `s <= end_epoch` condition must assign Monday's key.
+        let mut sched = Schedule::new();
+        let pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let room = make_event_room(&mut sched, "R1", None, 1);
+        let p1 = make_panel(&mut sched, "GP001", Some((0, 22, 0, 0)), Some(120)); // Mon 22:00–00:00 Tue
+        let p2 = make_panel(&mut sched, "GP002", Some((1, 10, 0, 0)), Some(60)); // Tue 10:00–11:00
+        for p in [p1, p2] {
+            link_panel_type(&mut sched, p, pt);
+            link_panel_room(&mut sched, p, room);
+        }
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        let nb = export
+            .panels
+            .iter()
+            .find(|p| p.id.starts_with("%NB"))
+            .expect("%NB must exist");
+        assert_eq!(
+            nb.day_key.as_deref(),
+            Some("2026-06-01"),
+            "%NB starting at midnight (00:00 Tue) must carry Monday's day_key"
+        );
+    }
+
+    #[test]
+    fn test_overnight_break_day_key_borrowed_after_midnight() {
+        // GP002 starts at 00:30 AM Tue — borrowed into Monday because it's the
+        // late-night tail followed by a gap. Monday's borrowed_end_epoch = end of
+        // GP002 = 01:30 AM Tue. The %NB starts at 01:30 AM Tue; the inclusive
+        // `s <= borrowed_end_epoch` condition must assign Monday's key.
+        let mut sched = Schedule::new();
+        let pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let room = make_event_room(&mut sched, "R1", None, 1);
+        let p1 = make_panel(&mut sched, "GP001", Some((0, 20, 0, 0)), Some(180)); // Mon 20:00–23:00
+        let p2 = make_panel(&mut sched, "GP002", Some((1, 0, 30, 0)), Some(60)); // Tue 00:30–01:30 (borrowed)
+        let p3 = make_panel(&mut sched, "GP003", Some((1, 10, 0, 0)), Some(60)); // Tue 10:00–11:00
+        for p in [p1, p2, p3] {
+            link_panel_type(&mut sched, p, pt);
+            link_panel_room(&mut sched, p, room);
+        }
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        let nb = export
+            .panels
+            .iter()
+            .find(|p| p.id.starts_with("%NB"))
+            .expect("%NB must exist");
+        assert_eq!(
+            nb.day_key.as_deref(),
+            Some("2026-06-01"),
+            "%NB starting at 01:30 AM Tue must carry Monday's day_key via borrow"
+        );
     }
 
     #[test]
@@ -1833,5 +1958,72 @@ mod tests {
         annotate_multipart_series(&mut panels);
         assert!(panels.iter().all(|p| p.total_parts.is_none()));
         assert!(panels.iter().all(|p| !p.is_series_lead));
+    }
+
+    #[test]
+    fn test_panel_day_key_stamped_with_borrow() {
+        // GP001 Mon 20:00–23:00, GP002 Tue 00:30–01:30 (borrowed into Monday),
+        // GP003 Tue 10:00–11:00 (opens Tuesday). Verify day_key on each panel.
+        let mut sched = Schedule::new();
+        let pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let p1 = make_panel(&mut sched, "GP001", Some((0, 20, 0, 0)), Some(180));
+        let p2 = make_panel(&mut sched, "GP002", Some((1, 0, 30, 0)), Some(60));
+        let p3 = make_panel(&mut sched, "GP003", Some((1, 10, 0, 0)), Some(60));
+        for p in [p1, p2, p3] {
+            link_panel_type(&mut sched, p, pt);
+        }
+
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        let day_key = |id: &str| -> Option<String> {
+            export
+                .panels
+                .iter()
+                .find(|p| p.id == id)
+                .and_then(|p| p.day_key.clone())
+        };
+        assert_eq!(
+            day_key("GP001"),
+            Some("2026-06-01".to_string()),
+            "GP001 -> Monday"
+        );
+        assert_eq!(
+            day_key("GP002"),
+            Some("2026-06-01".to_string()),
+            "GP002 borrowed -> Monday"
+        );
+        assert_eq!(
+            day_key("GP003"),
+            Some("2026-06-02".to_string()),
+            "GP003 -> Tuesday"
+        );
+    }
+
+    #[test]
+    fn test_panel_day_key_date_matches_day_timeline() {
+        // Every non-break panel must have a day_key that matches an entry in
+        // day_timeline. Unscheduled panels have no day_key.
+        let mut sched = Schedule::new();
+        let pt = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let p1 = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60));
+        let p2 = make_panel(&mut sched, "GP002", Some((1, 9, 0, 0)), Some(60));
+        for p in [p1, p2] {
+            link_panel_type(&mut sched, p, pt);
+        }
+
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        let day_dates: std::collections::HashSet<String> =
+            export.day_timeline.iter().map(|d| d.date.clone()).collect();
+        for panel in &export.panels {
+            if panel.start_epoch.is_some() {
+                let key = panel.day_key.as_deref().unwrap_or("");
+                assert!(
+                    day_dates.contains(key),
+                    "panel {} day_key {:?} not found in day_timeline dates {:?}",
+                    panel.id,
+                    panel.day_key,
+                    day_dates
+                );
+            }
+        }
     }
 }

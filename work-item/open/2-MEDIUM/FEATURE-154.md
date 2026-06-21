@@ -21,6 +21,20 @@ Migration is staged to keep the build green at every step:
    now derives wall-clock display times from `startEpoch`/`endEpoch` interpreted in
    `meta.timezone` (via `Intl`), falling back to the naive ISO strings on pre-v2 data.
    The widget-html embed loader parses the `data-*-epoch` attributes.
+   - Added `date: String` to `WidgetDaySpan` and `day_key: Option<String>` to `WidgetPanel`;
+     stamped in Rust via `dayTimeline` range lookup (inclusive, respects `borrowedEndEpoch`
+     for overnight break panels). Added `data-day-key` attribute to widget-html panel
+     elements; parsed by the embed loader into `panel.dayKey`.
+   - Regression tests for overnight-break `day_key` stamping (panel ending at midnight,
+     borrowed session after midnight).
+   - Replaced the ISO-string slot-key pipeline in `_buildGridView` with epoch-minute keys:
+     `epochToSlotEpoch` / `slotEpochToName` helpers; `evenSlotEpochs` /
+     `getIntermediateSlotEpochs` replacing four functions that had a hardcoded
+     `2026-06-25` reference date; O(1) row-span lookup; day headers from `dayTimeline`
+     range lookup; `_buildGridHeader` takes a `dayTimeline` entry directly.
+   - List view groups by epoch slot key; day boundary via `evt.dayKey`.
+   - Fixed `formatTime`, `formatTimeGrid`, `formatTimeSplit` to parse hours/minutes
+     from ISO substring instead of `new Date(naiveIso)` (avoids browser-local drift).
 3. **Phase 3:** Migrate the Rust consumers (`schedule-layout`, `cosam-viewer`) to
    compute wall-clock from epoch + `meta.timezone`, **and** remove the ISO string
    fields. Because REFACTOR-153 unified the DTO, these consumers share the wire
@@ -97,6 +111,11 @@ and convert to local time for display using the timezone field.
 - [x] `widget-json-format.md` documents the new integer time fields and format version 2 (Phase 1)
 - [x] `widget-html-format.md` documents the new integer `data-*` attributes and format version 2 (Phase 1)
 - [x] Time display in the widget (day tabs, time ranges, grid axis) works correctly with epoch seconds (Phase 2)
+- [x] Precomputed `day_key` on panels used for day bucketing throughout widget (Phase 2)
+- [x] Grid time-slot pipeline uses epoch keys — no ISO string parsing for layout or bucketing (Phase 2)
+- [x] Time display functions use ISO substring parsing, not `new Date(naiveIso)` (Phase 2)
+- [x] `data-day-key` emitted in widget-html; parsed by embed loader (Phase 2)
+- [x] Overnight break day_key regression tests added (Phase 2)
 - [ ] iCalendar generation (`.ics` download) continues to work correctly using `timezone` + `vtimezone`
 - [ ] All existing test exports are regenerated with the new format
 

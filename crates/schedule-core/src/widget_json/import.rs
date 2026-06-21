@@ -789,6 +789,7 @@ mod tests {
             prereq: None,
             difficulty: None,
             ticket_url: None,
+            day_key: None,
         }];
 
         let widget = WidgetExport {
@@ -872,6 +873,7 @@ mod tests {
             prereq: None,
             difficulty: None,
             ticket_url: None,
+            day_key: None,
         }];
 
         let widget = WidgetExport {
@@ -959,6 +961,7 @@ mod tests {
             prereq: None,
             difficulty: None,
             ticket_url: None,
+            day_key: None,
         }];
 
         let widget = WidgetExport {
@@ -1063,6 +1066,7 @@ mod tests {
             prereq: None,
             difficulty: None,
             ticket_url: None,
+            day_key: None,
         }];
 
         let widget = WidgetExport {

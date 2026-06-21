@@ -137,16 +137,17 @@ Each panel is an `<article class="cosam-panel">` element.
 
 #### Optional `data-*` Attributes
 
-| Attribute             | Type    | Description                                                                     |
-| --------------------- | ------- | ------------------------------------------------------------------------------- |
-| `data-part-num`       | integer | Part number (omitted when absent)                                               |
-| `data-session-num`    | integer | Session number (omitted when absent)                                            |
-| `data-total-parts`    | integer | Distinct part count for a multi-part series (omitted unless >1 part)            |
-| `data-is-series-lead` | boolean | `"true"` on the lead part that bears the shared series cost (omitted otherwise) |
-| `data-cost`           | string  | Cost string (see Cost Values documentation)                                     |
-| `data-capacity`       | string  | Seat capacity (e.g. `"15"`)                                                     |
-| `data-difficulty`     | string  | Skill level indicator                                                           |
-| `data-ticket-url`     | string  | Ticket purchase URL                                                             |
+| Attribute             | Type    | Description                                                                                                                                                              |
+| --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `data-part-num`       | integer | Part number (omitted when absent)                                                                                                                                        |
+| `data-session-num`    | integer | Session number (omitted when absent)                                                                                                                                     |
+| `data-total-parts`    | integer | Distinct part count for a multi-part series (omitted unless >1 part)                                                                                                     |
+| `data-is-series-lead` | boolean | `"true"` on the lead part that bears the shared series cost (omitted otherwise)                                                                                          |
+| `data-day-key`        | string  | Precomputed day-bucket key (`YYYY-MM-DD`) — matches a `date` in `dayTimeline` in the structural JSON block. Omitted for unscheduled panels and pre-v2 data. FEATURE-154. |
+| `data-cost`           | string  | Cost string (see Cost Values documentation)                                                                                                                              |
+| `data-capacity`       | string  | Seat capacity (e.g. `"15"`)                                                                                                                                              |
+| `data-difficulty`     | string  | Skill level indicator                                                                                                                                                    |
+| `data-ticket-url`     | string  | Ticket purchase URL                                                                                                                                                      |
 
 #### Required Child Elements
 
@@ -178,6 +179,7 @@ The `credits` array is reconstructed by the widget as
   data-room-ids="10"
   data-start-epoch="1782842400"
   data-end-epoch="1782846000"
+  data-day-key="2026-06-26"
   data-duration="60"
   data-is-premium="false"
   data-is-full="false"
@@ -221,7 +223,8 @@ The widget reconstructs the full data model from the HTML as follows:
 
 2. **Panels array**: Query all `article.cosam-panel` elements in DOM order (already
    chronological). For each element:
-   - Read all `data-*` attributes for scalar fields.
+   - Read all `data-*` attributes for scalar fields, including `data-day-key` →
+     `dayKey` when present.
    - Read `.cosam-panel-name`, `.cosam-panel-desc`, `.cosam-panel-note`,
      `.cosam-panel-prereq` text content for string fields.
    - Read `.cosam-panel-credits > li` text content list for the `credits` array.

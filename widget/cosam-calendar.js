@@ -79,26 +79,26 @@ import QRCode from 'qrcode';
 
   function formatTime(isoStr) {
     if (!isoStr) return '';
-    const d = new Date(isoStr);
-    let h = d.getHours();
-    const m = d.getMinutes();
+    const h = parseInt(isoStr.substring(11, 13), 10);
+    const m = parseInt(isoStr.substring(14, 16), 10);
+    if (isNaN(h) || isNaN(m)) return '';
     if (h === 0 && m === 0) return 'Midnight';
     if (h === 12 && m === 0) return 'Noon';
     const ampm = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return m === 0 ? `${h} ${ampm}` : `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+    const h12 = h % 12 || 12;
+    return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
   }
 
   function formatTimeGrid(isoStr) {
     if (!isoStr) return '';
-    const d = new Date(isoStr);
-    let h = d.getHours();
-    const m = d.getMinutes();
+    const h = parseInt(isoStr.substring(11, 13), 10);
+    const m = parseInt(isoStr.substring(14, 16), 10);
+    if (isNaN(h) || isNaN(m)) return '';
     if (h === 0 && m === 0) return 'Midnight';
     if (h === 12 && m === 0) return 'Noon';
     const ampm = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return m === 0 ? `${h} ${ampm}` : `${h}:${String(m).padStart(2, '0')}`;
+    const h12 = h % 12 || 12;
+    return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, '0')}`;
   }
 
   /**
@@ -112,9 +112,12 @@ import QRCode from 'qrcode';
    */
   function formatTimeSplit(isoStr) {
     if (!isoStr) return { isSpecial: true, hour: '', suffix: '', full: '', label: '' };
-    const d = new Date(isoStr);
-    let h = d.getHours();
-    const m = d.getMinutes();
+    // Parse hours and minutes directly from the schedule-timezone ISO wall-clock
+    // string. Avoids browser-local timezone drift: new Date(naiveIso) is
+    // implementation-defined (local or UTC depending on runtime).
+    const h = parseInt(isoStr.substring(11, 13), 10);
+    const m = parseInt(isoStr.substring(14, 16), 10);
+    if (isNaN(h) || isNaN(m)) return { isSpecial: true, hour: '', suffix: '', full: '', label: '' };
 
     // Midnight and Noon span both columns (centered)
     if (h === 0 && m === 0) {
@@ -125,25 +128,26 @@ import QRCode from 'qrcode';
     }
 
     const ampm = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
+    const h12 = h % 12 || 12;
+    const ms = String(m).padStart(2, '0');
 
     if (m === 0) {
       // On the hour: hour in left, AM/PM in right (with non-breaking space)
       return {
         isSpecial: false,
-        hour: String(h),
+        hour: String(h12),
         suffix: `\u00A0${ampm}`,
-        full: `${h} ${ampm}`,
-        label: `${h} ${ampm}`
+        full: `${h12} ${ampm}`,
+        label: `${h12} ${ampm}`
       };
     } else {
       // With minutes: hour in left, :MM in right
       return {
         isSpecial: false,
-        hour: String(h),
-        suffix: `:${String(m).padStart(2, '0')}`,
-        full: `${h}:${String(m).padStart(2, '0')} ${ampm}`,
-        label: `${h}:${String(m).padStart(2, '0')} ${ampm}`
+        hour: String(h12),
+        suffix: `:${ms}`,
+        full: `${h12}:${ms} ${ampm}`,
+        label: `${h12}:${ms} ${ampm}`
       };
     }
   }
@@ -166,7 +170,14 @@ import QRCode from 'qrcode';
 
   function getDayLabel(isoStr) {
     if (!isoStr) return 'Unknown';
-    const d = new Date(isoStr);
+    // Parse only the date portion to avoid timezone drift: `new Date(isoStr)` on a
+    // naive ISO string (no Z / offset) is implementation-defined and some runtimes
+    // treat it as UTC, shifting the weekday in negative-UTC-offset timezones.
+    // Using `new Date(year, month-1, day)` always creates a local-time date.
+    const datePart = isoStr.length >= 10 ? isoStr.substring(0, 10) : isoStr;
+    const parts = datePart.split('-').map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return 'Unknown';
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
     return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   }
 
@@ -178,6 +189,24 @@ import QRCode from 'qrcode';
   function getTimeSlotKey(isoStr) {
     if (!isoStr) return '';
     return isoStr.substring(0, 16); // YYYY-MM-DDTHH:MM
+  }
+
+  // Round epoch seconds down to the nearest minute boundary for time-slot
+  // grouping. Pure integer arithmetic — no Date object, no timezone lookup.
+  function epochToSlotEpoch(epochSec) {
+    return Math.floor(epochSec / 60) * 60;
+  }
+
+  // CSS-safe grid-line name from a slot epoch (epoch-minutes, prefixed 't').
+  // Using absolute epoch-minutes avoids the weekday-collision in the old
+  // t${dayNum}${HH}${MM} scheme (same weekday+time on different weeks collide)
+  // and requires no Date parsing.
+  // Note: for non-integer-hour timezone offsets (e.g. IST UTC+5:30) the epoch
+  // modulo used in the GCD unit calculation will see a 30-min component even
+  // for on-the-hour schedule events, producing a 30-min grid instead of 60-min.
+  // This is a cosmetic tradeoff accepted for simpler epoch-only arithmetic.
+  function slotEpochToName(slotEpoch) {
+    return 't' + Math.floor(slotEpoch / 60);
   }
 
   // FEATURE-154: Convert Unix epoch seconds to a naive wall-clock ISO string
@@ -205,99 +234,53 @@ import QRCode from 'qrcode';
     }
   }
 
-  // Fill in regular time-unit keys between the earliest and latest of event boundaries,
-  // so the print grid has an even time axis — one row per unit — even where no
-  // event starts or ends. The unit is based on minute components of event start/end times
-  // (divisions of hours), treating 0 remainder as 60 minutes.
-  // Returns the union (event boundaries kept), sorted.
-  // Only regular events (not breaks) cause intermediate slots to be filled.
-  function evenTimeKeys(events, regularEvents) {
-    if (events.length < 2) return events.map(e => getTimeSlotKey(e.startTime));
-    // Use all event boundaries (including breaks) for the initial keys set
-    const keys = [...new Set(events.flatMap(e => [getTimeSlotKey(e.startTime), getTimeSlotKey(e.endTime)]))].sort();
-    if (keys.length < 2) return keys;
-
-    // Calculate unit based on minute components of event start/end times
-    const minuteComponents = regularEvents.flatMap(e => {
-      const startMin = parseInt(e.startTime.split('T')[1].split(':')[1]) || 0;
-      const endMin = parseInt(e.endTime.split('T')[1].split(':')[1]) || 0;
-      return [startMin, endMin];
-    }).filter(m => m > 0);
-
-    // Find the greatest common divisor of all minute components
-    // Always include 60 to ensure we get divisions of hours
-    const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
-    let unit = 60;
-    for (let i = 0; i < minuteComponents.length; i++) {
-      unit = gcd(unit, minuteComponents[i]);
+  // Fill intermediate slot epochs from startEpoch to endEpoch at unitSecs
+  // intervals (both boundaries inclusive). Pure epoch arithmetic — no ISO
+  // parsing, no Date objects, no hardcoded reference dates.
+  function getIntermediateSlotEpochs(startEpoch, endEpoch, unitSecs) {
+    const slots = [];
+    const start = epochToSlotEpoch(startEpoch);
+    const end = epochToSlotEpoch(endEpoch);
+    for (let s = start; s <= end; s += unitSecs) {
+      slots.push(s);
     }
+    return slots;
+  }
 
-    // Clamp to 15-60 minutes
-    unit = Math.max(15, Math.min(60, unit));
-    const out = new Set(keys);
+  // Build the full set of slot epochs for fillPage (print) mode: all event
+  // start/end boundaries plus intermediate unit-interval epochs so the grid
+  // has an even time axis. Unit is the GCD of minute-of-epoch-hour components
+  // across regular events, clamped to 15–60 min. See slotEpochToName for the
+  // timezone offset tradeoff note.
+  function evenSlotEpochs(events, regularEvents) {
+    const out = new Set();
+    for (const e of events) {
+      if (typeof e.startEpoch === 'number') out.add(epochToSlotEpoch(e.startEpoch));
+      if (typeof e.endEpoch === 'number') out.add(epochToSlotEpoch(e.endEpoch));
+    }
+    if (out.size < 2) return [...out].sort((a, b) => a - b);
 
-    // For each regular event, fill intermediate slots at unit interval during its duration
-    for (const evt of regularEvents) {
-      const intermediateKeys = getIntermediateTimeKeys(evt.startTime, evt.endTime, unit);
-      for (const key of intermediateKeys) {
-        out.add(key);
+    const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+    let unitMinutes = 60;
+    for (const e of regularEvents) {
+      for (const ep of [e.startEpoch, e.endEpoch]) {
+        if (typeof ep === 'number') {
+          const m = (epochToSlotEpoch(ep) % 3600) / 60;
+          if (m > 0) unitMinutes = gcd(unitMinutes, m);
+        }
       }
     }
+    unitMinutes = Math.max(15, Math.min(60, unitMinutes));
+    const unitSecs = unitMinutes * 60;
 
-    return [...out].sort();
-  }
-
-  // Get intermediate time keys between start and end at unit intervals
-  function getIntermediateTimeKeys(startStr, endStr, unitMinutes) {
-    const keys = [];
-    const start = parseLocalTimeComponents(startStr);
-    const end = parseLocalTimeComponents(endStr);
-
-    let currentDay = start.day;
-    let currentHour = start.hour;
-    let currentMinute = start.minute;
-
-    const endTotalMinutes = end.day * 24 * 60 + end.hour * 60 + end.minute;
-    let currentTotalMinutes = start.day * 24 * 60 + start.hour * 60 + start.minute;
-
-    while (currentTotalMinutes <= endTotalMinutes) {
-      const key = formatTimeKey(currentDay, currentHour, currentMinute);
-      keys.push(key);
-      currentTotalMinutes += unitMinutes;
-      currentDay = Math.floor(currentTotalMinutes / (24 * 60));
-      const dayMinutes = currentTotalMinutes % (24 * 60);
-      currentHour = Math.floor(dayMinutes / 60);
-      currentMinute = dayMinutes % 60;
+    for (const evt of regularEvents) {
+      if (typeof evt.startEpoch === 'number' && typeof evt.endEpoch === 'number') {
+        for (const s of getIntermediateSlotEpochs(evt.startEpoch, evt.endEpoch, unitSecs)) {
+          out.add(s);
+        }
+      }
     }
-
-    return keys;
-  }
-
-  // Parse local time string into components (day offset from first key, hour, minute)
-  function parseLocalTimeComponents(isoStr) {
-    const [datePart, timePart] = isoStr.split('T');
-    const [year, month, day] = datePart.split('-').map(Number);
-    const [hour, minute, second = 0] = timePart.split(':').map(Number);
-
-    // Calculate day offset from a reference date (using the first key's date)
-    // For simplicity, we'll use the actual date difference
-    const refDate = new Date(2026, 5, 25); // June 25, 2026 as reference
-    const currentDate = new Date(year, month - 1, day);
-    const dayOffset = Math.floor((currentDate - refDate) / (1000 * 60 * 60 * 24));
-
-    return { day: dayOffset, hour, minute };
-  }
-
-  // Format time key from components
-  function formatTimeKey(dayOffset, hour, minute) {
-    const refDate = new Date(2026, 5, 25);
-    const targetDate = new Date(refDate.getTime() + dayOffset * 24 * 60 * 60 * 1000);
-    const year = targetDate.getFullYear();
-    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-    const day = String(targetDate.getDate()).padStart(2, '0');
-    const hourStr = String(hour).padStart(2, '0');
-    const minuteStr = String(minute).padStart(2, '0');
-    return `${year}-${month}-${day}T${hourStr}:${minuteStr}`;
+    return [...out].sort((a, b) => a - b);
   }
 
   function escapeHtml(s) {
@@ -834,9 +817,12 @@ import QRCode from 'qrcode';
       // Remove SPLIT events (page-break markers for print layout)
       events = events.filter(e => !this._isSplitEvent(e));
 
-      // Day filter
+      // Day filter — prefer precomputed dayKey (FEATURE-154); fall back to
+      // substring extraction from the naive wall-clock startTime ISO string for
+      // pre-v2 data (no epoch seconds, no dayKey). getDayKey is pure string
+      // parsing (isoStr.substring(0, 10)), so no Date conversion is needed.
       if (this.activeDay) {
-        events = events.filter(e => getDayKey(e.startTime) === this.activeDay);
+        events = events.filter(e => (e.dayKey || getDayKey(e.startTime)) === this.activeDay);
       }
 
       // Search — breaks excluded when searching
@@ -1799,35 +1785,45 @@ import QRCode from 'qrcode';
     _buildListView(events, isPrintLayout = false) {
       const container = el('div', { className: 'cosam-list-view' });
 
-      // Group by time slot
+      // Group by epoch-minute slot key (sort order = chronological).
+      const listDayTimeline = (this.state.data && this.state.data.dayTimeline) || [];
       const groups = new Map();
       for (const evt of events) {
-        const key = getTimeSlotKey(evt.startTime);
+        const key = typeof evt.startEpoch === 'number' ? epochToSlotEpoch(evt.startEpoch) : getTimeSlotKey(evt.startTime);
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(evt);
       }
 
-      // Sort time keys chronologically for proper day transition detection
-      const sortedTimeKeys = Array.from(groups.keys()).sort();
+      // Sort slot keys chronologically (numbers sort correctly with numeric compare).
+      const sortedTimeKeys = Array.from(groups.keys()).sort((a, b) => a - b);
 
       // Each day becomes a sticky section: the day header pins to the top of the
       // viewport for the whole day, with the time header pinning just beneath it.
+      // Use evt.dayKey (precomputed by Rust, respects overnight borrow) for day
+      // boundary detection; derive the label from the dayTimeline entry date string.
       let currentDayKey = null;
       let daySection = container;
 
       for (const timeKey of sortedTimeKeys) {
         const evts = groups.get(timeKey);
+        const firstEvt = evts && evts.length > 0 ? evts[0] : null;
 
-        const daySource = evts && evts.length > 0 ? evts[0].startTime : timeKey + ':00';
-        const dayKey = getDayKey(daySource);
-        if (dayKey !== currentDayKey) {
+        // dayKey: precomputed on panel (correct for borrowed overnight sessions).
+        const dayKey = firstEvt
+          ? (firstEvt.dayKey || getDayKey(firstEvt.startTime))
+          : null;
+        if (dayKey && dayKey !== currentDayKey) {
           currentDayKey = dayKey;
+          // Label: prefer dayTimeline entry (no Date parsing of epoch needed);
+          // fall back to getDayLabel which parses from the YYYY-MM-DD string.
+          const dtEntry = listDayTimeline.find(d => d.date === dayKey);
+          const dayLabel = dtEntry ? getDayLabel(dtEntry.date) : getDayLabel(dayKey);
           daySection = el('div', { className: 'cosam-day-section' });
           daySection.appendChild(el('div', {
             className: 'cosam-day-header',
             role: 'heading',
             'aria-level': '2',
-          }, getDayLabel(daySource)));
+          }, dayLabel));
           container.appendChild(daySection);
         }
 
@@ -2148,24 +2144,29 @@ import QRCode from 'qrcode';
         return container;
       }
 
-      // Generate time slots from event start/end times. In fillPage (print)
-      // mode, fill in regular time units between boundaries so the grid has an
-      // even time axis — a row per unit even where nothing starts/stops (mirrors
-      // schedule-to-html's grid). Off-unit event boundaries keep their own line.
-      const eventTimeKeys = [...new Set(events.flatMap(e => [getTimeSlotKey(e.startTime), getTimeSlotKey(e.endTime)]))].sort();
+      // Build slot epochs: all event start/end epoch boundaries, plus
+      // intermediate unit-interval epochs in fillPage mode so the grid has an
+      // even time axis. Epoch-based keys need no Date/ISO parsing and correctly
+      // handle the schedule timezone via the precomputed startEpoch values.
+      const tz = this.state.data && this.state.data.meta && this.state.data.meta.timezone || '';
+      const dayTimeline = (this.state.data && this.state.data.dayTimeline) || [];
 
-      const allTimeKeys = fillPage ? evenTimeKeys(events, regularEvents) : eventTimeKeys;
+      const eventSlotEpochs = new Set();
+      for (const e of events) {
+        if (typeof e.startEpoch === 'number') eventSlotEpochs.add(epochToSlotEpoch(e.startEpoch));
+        if (typeof e.endEpoch === 'number') eventSlotEpochs.add(epochToSlotEpoch(e.endEpoch));
+      }
+      const allSlotEpochs = fillPage
+        ? evenSlotEpochs(events, regularEvents)
+        : [...eventSlotEpochs].sort((a, b) => a - b);
 
-      // Convert to shorter names: weekday number + hour + minute (e.g., t51030 for Friday 10:30 AM)
+      // CSS grid-line names: epoch-minutes prefixed with 't' (unique across all
+      // dates, no weekday-collision, no Date object needed).
       const timeSlotMap = {};
-      const timeSlots = allTimeKeys.map(key => {
-        const date = new Date(key + ':00');
-        const dayNum = date.getDay(); // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
-        const hour = date.getHours();
-        const minute = date.getMinutes();
-        const shortName = `t${dayNum}${hour.toString().padStart(2, '0')}${minute.toString().padStart(2, '0')}`;
-        timeSlotMap[key] = shortName;
-        return shortName;
+      const timeSlots = allSlotEpochs.map(slotEpoch => {
+        const name = slotEpochToName(slotEpoch);
+        timeSlotMap[slotEpoch] = name;
+        return name;
       });
 
       // Create grid template styles
@@ -2182,10 +2183,12 @@ import QRCode from 'qrcode';
       // Don't emit a track or header for such trailing end-only keys; instead
       // fold their grid-line names onto the [footer] line so event/break spans
       // ending there still resolve.
-      const startKeys = new Set(events.map(e => getTimeSlotKey(e.startTime)));
+      const startSlotEpochs = new Set(
+        events.filter(e => typeof e.startEpoch === 'number').map(e => epochToSlotEpoch(e.startEpoch))
+      );
       let lastStartIdx = -1;
-      for (let i = 0; i < allTimeKeys.length; i++) {
-        if (startKeys.has(allTimeKeys[i])) lastStartIdx = i;
+      for (let i = 0; i < allSlotEpochs.length; i++) {
+        if (startSlotEpochs.has(allSlotEpochs[i])) lastStartIdx = i;
       }
       // In fillPage mode every even unit is a real row, so only the final
       // closing line (the last event end) folds onto the footer; otherwise fold
@@ -2201,16 +2204,23 @@ import QRCode from 'qrcode';
           trailingLineNames.push(timeSlots[i]);
           continue;
         }
-        const dayKey = getDayKey(allTimeKeys[i] + ':00');
-        if (dayKey !== hdrLastDayKey) {
-          // Only add day header if there's a non-break event starting at this time slot
+        // Day key from dayTimeline (epoch-range lookup, respects borrow convention).
+        const slotEpoch = allSlotEpochs[i];
+        const dayEntry = dayTimeline.find(d =>
+          slotEpoch >= d.startEpoch && slotEpoch <= (d.borrowedEndEpoch || d.endEpoch)
+        );
+        const dayKey = dayEntry ? dayEntry.date : null;
+        if (dayKey && dayKey !== hdrLastDayKey) {
+          // Only add day header if there's a non-break event starting at this slot
           const hasNonBreakStart = events.some(e =>
-            !this.state._isBreakEvent(e) && getTimeSlotKey(e.startTime) === allTimeKeys[i]
+            !this.state._isBreakEvent(e) &&
+            typeof e.startEpoch === 'number' &&
+            epochToSlotEpoch(e.startEpoch) === slotEpoch
           );
           if (hasNonBreakStart) {
             hdrLastDayKey = dayKey;
             const rowName = 'dayhdr-' + dayKey.replace(/[^0-9a-z]/gi, '');
-            dayHeaders.push({ rowName, source: allTimeKeys[i] + ':00' });
+            dayHeaders.push({ rowName, dayEntry });
             rowParts.push(`[${rowName}] auto`);
           }
         }
@@ -2241,22 +2251,25 @@ import QRCode from 'qrcode';
       grid.style.gridTemplateRows = gridRows;
 
       // Add a sticky header row per day (corner = day/date, room columns repeat).
-      const headerSpecs = dayHeaders.length > 0 ? dayHeaders : [{ rowName: 'header', source: null }];
+      const headerSpecs = dayHeaders.length > 0 ? dayHeaders : [{ rowName: 'header', dayEntry: null }];
       for (const dh of headerSpecs) {
-        grid.appendChild(this._buildGridHeader(roomOrder, dh.source, dh.rowName));
+        grid.appendChild(this._buildGridHeader(roomOrder, dh.dayEntry, dh.rowName));
       }
 
       // Add time slots and events
       for (let i = 0; i < timeSlots.length; i++) {
         const timeSlot = timeSlots[i];
-        const originalKey = allTimeKeys[i];
-        const slotEvents = events.filter(e => getTimeSlotKey(e.startTime) === originalKey);
+        const slotEpoch = allSlotEpochs[i];
+        const slotEvents = events.filter(e =>
+          typeof e.startEpoch === 'number' && epochToSlotEpoch(e.startEpoch) === slotEpoch
+        );
         const slotRegular = slotEvents.filter(e => !this.state._isBreakEvent(e));
         const slotBreaks = slotEvents.filter(e => this.state._isBreakEvent(e));
 
-        // Determine if this is a half-hour (non-on-the-hour) slot
-        const slotDate = new Date(originalKey + ':00');
-        const isHalfHour = slotDate.getMinutes() !== 0;
+        // Half-hour slot: slot epoch is not on an exact hour boundary.
+        // (For non-integer-hour TZ offsets this may fire on on-the-hour events
+        // — see slotEpochToName comment. Accepted cosmetic tradeoff.)
+        const isHalfHour = slotEpoch % 3600 !== 0;
 
         // Build time header with split time format for aligned display
         const timeHeader = el('div', {
@@ -2267,8 +2280,13 @@ import QRCode from 'qrcode';
           }
         });
 
-        // Use split time format for accessibility and aligned display
-        const timeSource = slotEvents.length > 0 ? slotEvents[0].startTime : originalKey + ':00';
+        // Use split time format for accessibility and aligned display.
+        // startTime is the schedule-timezone wall-clock ISO string (set by
+        // _normalizeDataModel from epoch). Fall back to epochToLocalIso for
+        // filler slots (evenSlotEpochs rows with no event).
+        const timeSource = slotEvents.length > 0
+          ? slotEvents[0].startTime
+          : epochToLocalIso(slotEpoch, tz);
         const timeSplit = formatTimeSplit(timeSource);
 
         if (timeSplit.isSpecial) {
@@ -2316,19 +2334,13 @@ import QRCode from 'qrcode';
                 const eventEl = this._buildGridEvent(evt);
                 eventEl.style.gridColumn = `room-${roomId}`;
 
-                // Calculate row span for multi-time slot events
-                const endTimeSlot = getTimeSlotKey(evt.endTime);
-                const endRowIndex = timeSlots.indexOf(endTimeSlot);
-                const startRowIndex = timeSlots.indexOf(timeSlot);
-
-                if (endRowIndex > startRowIndex && endRowIndex < timeSlots.length) {
-                  // Multi-time slot event - span to end time
-                  const endSlotName = timeSlots[endRowIndex];
-                  eventEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
-                } else {
-                  // Single time slot event
-                  eventEl.style.gridRow = timeSlot;
-                }
+                // Row span: O(1) lookup via timeSlotMap[endEpoch].
+                const endSlotName = typeof evt.endEpoch === 'number'
+                  ? timeSlotMap[epochToSlotEpoch(evt.endEpoch)]
+                  : null;
+                eventEl.style.gridRow = endSlotName && endSlotName !== timeSlot
+                  ? `${timeSlot} / ${endSlotName}`
+                  : timeSlot;
 
                 grid.appendChild(eventEl);
               }
@@ -2355,20 +2367,13 @@ import QRCode from 'qrcode';
                   breakEl.style.gridColumn = `room-${startRoom} / ${endRoomName}`;
                 }
 
-                // Calculate row span for break events
-                const endTimeSlot = getTimeSlotKey(breakEvt.endTime);
-                const endSlotShortName = timeSlotMap[endTimeSlot];
-                const endRowIndex = timeSlots.indexOf(endSlotShortName);
-                const startRowIndex = i;
-
-                if (endRowIndex > startRowIndex && endRowIndex < timeSlots.length) {
-                  // Multi-time slot break - span to end time
-                  const endSlotName = timeSlots[endRowIndex];
-                  breakEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
-                } else {
-                  // Single time slot break
-                  breakEl.style.gridRow = timeSlot;
-                }
+                // Row span: O(1) lookup via timeSlotMap[endEpoch].
+                const breakEndSlotName = typeof breakEvt.endEpoch === 'number'
+                  ? timeSlotMap[epochToSlotEpoch(breakEvt.endEpoch)]
+                  : null;
+                breakEl.style.gridRow = breakEndSlotName && breakEndSlotName !== timeSlot
+                  ? `${timeSlot} / ${breakEndSlotName}`
+                  : timeSlot;
 
                 grid.appendChild(breakEl);
               }
@@ -2383,29 +2388,13 @@ import QRCode from 'qrcode';
               const eventEl = this._buildGridEvent(evt);
               eventEl.style.gridColumn = `room-${roomId}`;
 
-              // Calculate row span for multi-time slot events
-              const endTimeSlot = getTimeSlotKey(evt.endTime);
-              const endSlotShortName = timeSlotMap[endTimeSlot];
-              const endRowIndex = timeSlots.indexOf(endSlotShortName);
-              const startRowIndex = i;
-
-              if (endRowIndex > startRowIndex && endRowIndex < timeSlots.length) {
-                // Multi-time slot event - span to end time
-                const endSlotName = timeSlots[endRowIndex];
-                eventEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
-              } else {
-                // Calculate span based on duration if no exact end time slot found
-                const durationMinutes = evt.duration || 60;
-                const slotsToSpan = Math.ceil(durationMinutes / 30); // 30-minute slots
-
-                if (slotsToSpan > 1 && startRowIndex + slotsToSpan <= timeSlots.length) {
-                  const endSlotName = timeSlots[startRowIndex + slotsToSpan];
-                  eventEl.style.gridRow = `${timeSlot} / ${endSlotName}`;
-                } else {
-                  // Single time slot event
-                  eventEl.style.gridRow = timeSlot;
-                }
-              }
+              // Row span: O(1) lookup via timeSlotMap[endEpoch].
+              const endSlotName = typeof evt.endEpoch === 'number'
+                ? timeSlotMap[epochToSlotEpoch(evt.endEpoch)]
+                : null;
+              eventEl.style.gridRow = endSlotName && endSlotName !== timeSlot
+                ? `${timeSlot} / ${endSlotName}`
+                : timeSlot;
 
               grid.appendChild(eventEl);
             }
@@ -2462,7 +2451,7 @@ import QRCode from 'qrcode';
       return container;
     }
 
-    _buildGridHeader(roomOrder, daySource, rowName) {
+    _buildGridHeader(roomOrder, dayEntry, rowName) {
       const header = el('div', { className: 'cosam-grid-header' });
       const cellRow = rowName || 'header';
 
@@ -2473,8 +2462,11 @@ import QRCode from 'qrcode';
         className: 'cosam-grid-header-cell cosam-grid-time-header',
         style: { gridColumn: 'time', gridRow: cellRow }
       });
-      if (daySource) {
-        const d = new Date(daySource);
+      if (dayEntry) {
+        // dayEntry.date is 'YYYY-MM-DD' in schedule timezone. Parse via
+        // local-midnight constructor to avoid UTC-shift on naive date strings.
+        const parts = dayEntry.date.split('-').map(Number);
+        const d = new Date(parts[0], parts[1] - 1, parts[2]);
         const dayCell = el('div', {
           className: 'cosam-grid-time-header-day',
           role: 'heading',
@@ -3665,22 +3657,31 @@ html,body{background:#fff!important;margin:0;height:100%;}
     const data = renderer._normalizeDataModel(rawData);
     state.data = data;
 
-    // Extract days (skip SPLIT events which are print-layout markers)
-    const daySet = new Map();
+    // Build state.days from precomputed dayTimeline when available (FEATURE-154).
+    // dayTimeline entries carry a stable YYYY-MM-DD `date` key and a localized
+    // `label` — no wall-clock parsing needed. Fall back to scanning panels for
+    // pre-v2 data that lacks dayTimeline; pre-v2 panels have a naive startTime
+    // ISO string (no epoch seconds) so getDayKey uses substring extraction and
+    // getDayLabel parses the date part without relying on new Date(isoStr).
     const events = data.panels;
-    for (const evt of events) {
-      if (!evt.startTime) continue;
-      // Check for SPLIT events directly here since state._isSplitEvent needs this.state.data
-      if (evt.panelType && data.panelTypes) {
-        const pt = data.panelTypes.find(p => p.uid === evt.panelType);
-        if (pt && pt.isTimeline) continue;
+    if (Array.isArray(data.dayTimeline) && data.dayTimeline.length > 0 &&
+      data.dayTimeline.every(d => d.date)) {
+      state.days = data.dayTimeline.map(d => ({ key: d.date, label: d.label }));
+    } else {
+      const daySet = new Map();
+      for (const evt of events) {
+        if (!evt.startTime) continue;
+        if (evt.panelType && data.panelTypes) {
+          const pt = data.panelTypes.find(p => p.uid === evt.panelType);
+          if (pt && pt.isTimeline) continue;
+        }
+        const key = getDayKey(evt.startTime);
+        if (!daySet.has(key)) {
+          daySet.set(key, getDayLabel(evt.startTime));
+        }
       }
-      const key = getDayKey(evt.startTime);
-      if (!daySet.has(key)) {
-        daySet.set(key, getDayLabel(evt.startTime));
-      }
+      state.days = [...daySet.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, label]) => ({ key, label }));
     }
-    state.days = [...daySet.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, label]) => ({ key, label }));
 
     // Only set defaults if no saved/hash state was loaded
     if (!state._hasRestoredState) {
