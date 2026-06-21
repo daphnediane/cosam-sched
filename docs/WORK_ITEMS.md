@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Fri Jun 19 21:18:18 2026
+Updated on: Sat Jun 20 23:05:08 2026
 
 ## Completed
 
@@ -223,7 +223,7 @@ pattern where each job spec points to a specific output file or directory.
 
 ## Summary of Open Items
 
-**Total open items:** 22
+**Total open items:** 23
 
 * **Meta / Project-Level**
   * [META-001] Meta work item tracking the full multi-phase redesign of the schedule system. (Blocked by [META-007], [META-008])
@@ -248,6 +248,9 @@ widget, and add custom, user-managed print formats to the widget.
   * [FEATURE-152] Compile `schedule-layout` + an in-process Typst engine to WebAssembly and expose
 it as a lazy-loaded widget plugin, so the widget can produce the real Typst
 house-style PDF in the browser without paying the wasm cost during normal use.
+  * [FEATURE-154] Replace naive ISO 8601 datetime strings (e.g., `"2026-06-26T14:00:00"`) with Unix epoch
+seconds (seconds since 1970-01-01 UTC) across the widget JSON and widget-html formats
+to eliminate timezone-related parsing complexity and ambiguity.
 
 * **Low Priority**
   * [CLI-100] Add a `--interactive` flag to `cosam-modify` that opens a read-eval-print loop for
@@ -442,13 +445,22 @@ widget, and add custom, user-managed print formats to the widget.
 browser print, which previously offered only a hard-coded grid-vs-list choice
 with system fonts and no branding.
 
-This feature brings much of the Typst layout power into the widget's print path:
-a dropdown to create/manage custom print formats (mirroring the schedules UX)
-exposing the subset of layout options that map to browser print, plus a branding
-bridge so `cosam-convert` makes brand logos, colors, and web-equivalent print
-fonts from `config/brand.toml` available to the widget. Web fonts load via a
-Google Fonts `<link>` in the print window (e.g. Trend Sans One → Montserrat
-SemiBold 600). On-screen widget fonts are out of scope.
+This feature introduces a pluggable print architecture for the widget:
+
+* **Core ships a simple print** as the always-available fallback: the on-screen
+  CSS-Grid engine in a print mode with readable fonts, theme-aware colors, and
+  proper pagination.
+* **A branding bridge** so `cosam-convert` makes brand logos, colors, and
+  web-equivalent print fonts from `config/brand.toml` available to the widget.
+  Web fonts load via a Google Fonts `<link>` in the print window (e.g. Trend Sans
+  One → Montserrat SemiBold 600). On-screen widget fonts are out of scope.
+* **A `printPlugin` hook** on `CosAmCalendar.init` is the seam for opt-in plugins.
+* **An advanced print-format plugin** (future work) reintroduces the rich format
+  system: a dropdown to create/manage custom print formats (mirroring the
+  schedules UX) exposing the subset of layout options that map to browser print,
+  including time/section splits, Typst-style descriptions, brand header/footer,
+  and dynamic column allocation. The advanced code is preserved on
+  `feature/widget-print-formats` (commit `3f0effd`).
 
 ---
 
@@ -483,6 +495,32 @@ the user invokes the PDF action.
 This is explicitly a **rough first pass**: prove the pipeline end-to-end
 (schedule JSON in → house-style PDF out, in the browser), accept known fidelity
 gaps, and iterate afterward.
+
+---
+
+### [FEATURE-154] FEATURE-154: Migrate widget time strings from naive ISO 8601 to epoch seconds
+
+**Status:** In progress
+
+**Priority:** Medium
+
+**Summary:** Replace naive ISO 8601 datetime strings (e.g., `"2026-06-26T14:00:00"`) with Unix epoch
+seconds (seconds since 1970-01-01 UTC) across the widget JSON and widget-html formats
+to eliminate timezone-related parsing complexity and ambiguity.
+
+**Description:** The current widget formats use naive ISO 8601 datetime strings for all time fields
+(`startTime`, `endTime` in panels/timeline, `startTime`/`endTime` in meta). These
+strings are wall-clock values in the `timezone` specified in meta (e.g.,
+`"America/New_York"`). This approach has several problems:
+
+* **Ambiguity**: Without timezone context, the string is meaningless
+* **Parsing complexity**: Consumers must correctly combine naive string + timezone field
+* **Library differences**: Different JS/other language libraries handle naive datetimes inconsistently
+* **Error-prone**: Easy to forget to apply timezone when parsing/serializing
+
+Since the format already records a `timezone` field in meta (IANA name like
+`"America/New_York"`), we can use epoch seconds as the canonical time representation
+and convert to local time for display using the timezone field.
 
 ---
 
@@ -893,6 +931,7 @@ trait and unified `name` (all seven name-bearing entities), `description` /
 [FEATURE-150]: ../work-item/closed/done/FEATURE-150.md
 [FEATURE-151]: ../work-item/open/2-MEDIUM/FEATURE-151.md
 [FEATURE-152]: ../work-item/open/2-MEDIUM/FEATURE-152.md
+[FEATURE-154]: ../work-item/open/2-MEDIUM/FEATURE-154.md
 [META-001]: ../work-item/meta/META-001.md
 [META-002]: ../work-item/closed/done/META-002.md
 [META-003]: ../work-item/closed/done/META-003.md

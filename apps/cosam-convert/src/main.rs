@@ -1271,11 +1271,20 @@ fn run_layout_export(
     };
 
     // Schedule date range for resolving loose/recurring time expressions.
-    // The widget format uses "" for an absent naive datetime; treat that as None.
-    let sched_range: Option<(&str, &str)> = {
-        let start = data.meta.start_time.as_str();
-        let end = data.meta.end_time.as_str();
-        (!start.is_empty() && !end.is_empty()).then_some((start, end))
+    // Times are canonical epoch seconds (FEATURE-154); derive the local wall-clock
+    // window in the meta timezone. A `0` epoch means the bound is absent.
+    let sched_start = (data.meta.start_epoch != 0).then(|| {
+        schedule_core::value::timezone::epoch_to_local_iso(
+            data.meta.start_epoch,
+            &data.meta.timezone,
+        )
+    });
+    let sched_end = (data.meta.end_epoch != 0).then(|| {
+        schedule_core::value::timezone::epoch_to_local_iso(data.meta.end_epoch, &data.meta.timezone)
+    });
+    let sched_range: Option<(&str, &str)> = match (&sched_start, &sched_end) {
+        (Some(s), Some(e)) => Some((s.as_str(), e.as_str())),
+        _ => None,
     };
 
     // Determine which jobs to run:

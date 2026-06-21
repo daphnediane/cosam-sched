@@ -20,7 +20,6 @@ use crate::tables::panel_type::{PanelTypeEntityType, PanelTypeId};
 use crate::tables::presenter::{self, PresenterId};
 use crate::tables::timeline::TimelineId;
 use crate::value::cost::parse_additional_cost;
-use crate::value::time::parse_datetime;
 use crate::value::AdditionalCost;
 use chrono::Duration;
 use std::collections::{BTreeMap, HashMap};
@@ -186,6 +185,12 @@ pub fn import_from_widget_json(widget: &WidgetExport) -> Result<Schedule, Widget
     let mut schedule = Schedule::new();
     schedule.metadata.created_at = chrono::Utc::now();
     schedule.metadata.modified_at = Some(chrono::Utc::now());
+    // The internal schedule stores naive wall-clock times in this zone; epoch
+    // fields are converted back to wall-clock through it during import (FEATURE-154).
+    let tz_name = widget.meta.timezone.clone();
+    if !tz_name.is_empty() {
+        schedule.metadata.timezone = Some(tz_name.clone());
+    }
 
     // Import panel types first (needed for panel/timeline linking)
     let panel_type_map = import_panel_types(&widget.panel_types, &mut schedule)?;
@@ -197,7 +202,7 @@ pub fn import_from_widget_json(widget: &WidgetExport) -> Result<Schedule, Widget
     let presenter_map = import_presenters(&widget.presenters, &mut schedule)?;
 
     // Import timeline entries
-    import_timeline(&widget.timeline, &mut schedule)?;
+    import_timeline(&widget.timeline, &mut schedule, &tz_name)?;
 
     // Import panels and reconstruct edges
     import_panels(
@@ -206,6 +211,7 @@ pub fn import_from_widget_json(widget: &WidgetExport) -> Result<Schedule, Widget
         &room_map,
         &presenter_map,
         &mut schedule,
+        &tz_name,
     )?;
 
     Ok(schedule)
@@ -426,6 +432,7 @@ fn import_presenters(
 fn import_timeline(
     timeline: &[WidgetTimeline],
     schedule: &mut Schedule,
+    tz_name: &str,
 ) -> Result<(), WidgetJsonError> {
     for wt in timeline {
         let uuid_pref = UuidPreference::PreferFromV5 {
@@ -444,11 +451,11 @@ fn import_timeline(
             ));
         }
 
-        // WidgetTimeline.start_time is a String, not Option
-        if !wt.start_time.is_empty() {
-            if let Some(dt) = parse_datetime(&wt.start_time) {
-                updates.push(FieldUpdate::set(&crate::tables::timeline::FIELD_TIME, dt));
-            }
+        if let Some(dt) = wt
+            .start_epoch
+            .map(|e| crate::value::timezone::epoch_to_local(e, tz_name))
+        {
+            updates.push(FieldUpdate::set(&crate::tables::timeline::FIELD_TIME, dt));
         }
 
         let _tl_id: TimelineId = build_entity(schedule, uuid_pref, updates).map_err(|e| {
@@ -462,7 +469,11 @@ fn import_timeline(
 }
 
 /// Import a single break entry (a break-typed panel) into the Break table.
-fn import_break(wp: &WidgetPanel, schedule: &mut Schedule) -> Result<(), WidgetJsonError> {
+fn import_break(
+    wp: &WidgetPanel,
+    schedule: &mut Schedule,
+    tz_name: &str,
+) -> Result<(), WidgetJsonError> {
     let uuid_pref = UuidPreference::PreferFromV5 {
         name: wp.id.to_uppercase(),
     };
@@ -472,7 +483,10 @@ fn import_break(wp: &WidgetPanel, schedule: &mut Schedule) -> Result<(), WidgetJ
         FieldUpdate::set(&breaks::FIELD_NAME, wp.name.as_str()),
     ];
 
-    if let Some(st) = wp.start_time.as_ref().and_then(|s| parse_datetime(s)) {
+    if let Some(st) = wp
+        .start_epoch
+        .map(|e| crate::value::timezone::epoch_to_local(e, tz_name))
+    {
         updates.push(FieldUpdate::set(&breaks::FIELD_START_TIME, st));
     }
     if wp.duration > 0 {
@@ -504,6 +518,7 @@ fn import_panels(
     room_map: &HashMap<i32, EventRoomId>,
     presenter_map: &HashMap<String, PresenterId>,
     schedule: &mut Schedule,
+    tz_name: &str,
 ) -> Result<(), WidgetJsonError> {
     for wp in panels {
         // Skip synthesized break panels (%IB/%NB) - they're regenerated on export.
@@ -521,7 +536,7 @@ fn import_panels(
             .map(|d| d.data.is_break)
             .unwrap_or(false);
         if is_break {
-            import_break(wp, schedule)?;
+            import_break(wp, schedule, tz_name)?;
             continue;
         }
 
@@ -536,9 +551,13 @@ fn import_panels(
             FieldUpdate::set(&crate::tables::panel::FIELD_FOR_KIDS, wp.is_kids),
         ];
 
-        // Parse timing
-        let start_time = wp.start_time.as_ref().and_then(|s| parse_datetime(s));
-        let _end_time = wp.end_time.as_ref().and_then(|s| parse_datetime(s));
+        // Resolve timing: epoch → naive wall-clock in the schedule's timezone.
+        let start_time = wp
+            .start_epoch
+            .map(|e| crate::value::timezone::epoch_to_local(e, tz_name));
+        let _end_time = wp
+            .end_epoch
+            .map(|e| crate::value::timezone::epoch_to_local(e, tz_name));
         let duration = if wp.duration > 0 {
             Some(Duration::minutes(wp.duration as i64))
         } else {
@@ -755,8 +774,9 @@ mod tests {
             panel_type: Some("GP".to_string()),
             room_ids: vec![1],
             presenters: vec!["Alice".to_string()],
-            start_time: Some("2026-01-01T10:00:00".to_string()),
-            end_time: Some("2026-01-01T11:00:00".to_string()),
+            // 2026-01-01T10:00:00Z and 11:00:00Z (UTC; meta has no timezone).
+            start_epoch: Some(1_767_261_600),
+            end_epoch: Some(1_767_265_200),
             duration: 60,
             is_full: false,
             is_kids: false,
@@ -778,8 +798,8 @@ mod tests {
                 generator: "cosam-convert".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),
-                start_time: "2026-01-01".to_string(),
-                end_time: "2026-01-02".to_string(),
+                start_epoch: 0,
+                end_epoch: 0,
                 timezone: String::new(),
                 vtimezone: String::new(),
             },
@@ -836,8 +856,8 @@ mod tests {
             panel_type: Some("GP".to_string()),
             room_ids: Vec::new(),
             presenters: vec!["Alice".to_string()],
-            start_time: None,
-            end_time: None,
+            start_epoch: None,
+            end_epoch: None,
             duration: 0,
             is_full: false,
             is_kids: false,
@@ -859,8 +879,8 @@ mod tests {
                 generator: "cosam-convert".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),
-                start_time: "2026-01-01".to_string(),
-                end_time: "2026-01-02".to_string(),
+                start_epoch: 0,
+                end_epoch: 0,
                 timezone: String::new(),
                 vtimezone: String::new(),
             },
@@ -921,8 +941,8 @@ mod tests {
             panel_type: Some("GP".to_string()),
             room_ids: Vec::new(),
             presenters: vec!["Alice".to_string()],
-            start_time: None,
-            end_time: None,
+            start_epoch: None,
+            end_epoch: None,
             duration: 0,
             is_full: false,
             is_kids: false,
@@ -944,8 +964,8 @@ mod tests {
                 generator: "cosam-convert".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),
-                start_time: "2026-01-01".to_string(),
-                end_time: "2026-01-02".to_string(),
+                start_epoch: 0,
+                end_epoch: 0,
                 timezone: String::new(),
                 vtimezone: String::new(),
             },
@@ -1022,8 +1042,8 @@ mod tests {
             panel_type: Some("GP".to_string()),
             room_ids: Vec::new(),
             presenters: vec!["Alice".to_string(), "Bob".to_string()],
-            start_time: None,
-            end_time: None,
+            start_epoch: None,
+            end_epoch: None,
             duration: 0,
             is_full: false,
             is_kids: false,
@@ -1046,8 +1066,8 @@ mod tests {
                 generator: "cosam-convert".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),
-                start_time: "2026-01-01".to_string(),
-                end_time: "2026-01-02".to_string(),
+                start_epoch: 0,
+                end_epoch: 0,
                 timezone: String::new(),
                 vtimezone: String::new(),
             },

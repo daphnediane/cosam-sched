@@ -28,10 +28,16 @@ pub struct WidgetMeta {
     pub generator: String,
     pub generated: String,
     pub modified: String,
-    pub start_time: String,
-    pub end_time: String,
-    /// IANA timezone name the naive `startTime`/`endTime` and panel times are
-    /// expressed in. Empty when unknown.
+    /// Schedule window start as Unix epoch seconds (FEATURE-154). Canonical,
+    /// timezone-unambiguous time; combine with [`Self::timezone`] to recover the
+    /// wall-clock. `0` when unknown.
+    #[serde(default)]
+    pub start_epoch: i64,
+    /// Schedule window end as Unix epoch seconds. See [`Self::start_epoch`].
+    #[serde(default)]
+    pub end_epoch: i64,
+    /// IANA timezone name the epoch times are displayed in (used to recover the
+    /// wall-clock and to anchor `.ics` output). Empty when unknown.
     #[serde(default)]
     pub timezone: String,
     /// Precomputed iCalendar `VTIMEZONE` component for `timezone`, covering the
@@ -69,10 +75,14 @@ pub struct WidgetPanel {
     pub panel_type: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub room_ids: Vec<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<String>,
+    /// Start time as Unix epoch seconds (FEATURE-154). Canonical,
+    /// timezone-unambiguous time; combine with the meta timezone to recover the
+    /// wall-clock. Absent for unscheduled panels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_epoch: Option<i64>,
+    /// End time as Unix epoch seconds. See [`Self::start_epoch`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_epoch: Option<i64>,
     pub duration: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -160,7 +170,11 @@ pub struct WidgetPanelType {
 #[serde(rename_all = "camelCase")]
 pub struct WidgetTimeline {
     pub id: String,
-    pub start_time: String,
+    /// Start time as Unix epoch seconds (FEATURE-154). Canonical,
+    /// timezone-unambiguous time; combine with the meta timezone to recover the
+    /// wall-clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_epoch: Option<i64>,
     #[serde(alias = "description")]
     pub name: String,
     pub panel_type: Option<String>,
@@ -226,7 +240,7 @@ impl WidgetExport {
     pub fn scheduled_panels(&self) -> Vec<&WidgetPanel> {
         self.panels
             .iter()
-            .filter(|p| p.start_time.is_some() && !self.is_break_type(p.panel_type.as_deref()))
+            .filter(|p| p.start_epoch.is_some() && !self.is_break_type(p.panel_type.as_deref()))
             .collect()
     }
 
@@ -285,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_with_typed_colors_and_prefix() {
-        let json = r##"{"meta":{"title":"RT","version":1,"variant":"display","generator":"test","generated":"2026-01-01T00:00:00Z","modified":"2026-01-01T00:00:00Z","startTime":"","endTime":""},"panels":[{"id":"GP001","baseId":"GP001","name":"Test Panel","panelType":"GP","roomIds":[1],"startTime":"2026-06-26T14:00:00","endTime":"2026-06-26T15:00:00","duration":60}],"rooms":[{"uid":1,"shortName":"Main","longName":"Main Hall","hotelRoom":"Ballroom A","sortKey":0,"isBreak":false}],"panelTypes":{"GP":{"prefix":"GP","kind":"Guest Panel","colors":{"color":"#E2F9D7"},"isBreak":false,"isCafe":false,"isWorkshop":false,"isHidden":false,"isRoomHours":false,"isTimeline":false,"isPrivate":false}}}"##;
+        let json = r##"{"meta":{"title":"RT","version":2,"variant":"display","generator":"test","generated":"2026-01-01T00:00:00Z","modified":"2026-01-01T00:00:00Z","startEpoch":1782842400,"endEpoch":1782846000},"panels":[{"id":"GP001","baseId":"GP001","name":"Test Panel","panelType":"GP","roomIds":[1],"startEpoch":1782842400,"endEpoch":1782846000,"duration":60}],"rooms":[{"uid":1,"shortName":"Main","longName":"Main Hall","hotelRoom":"Ballroom A","sortKey":0,"isBreak":false}],"panelTypes":{"GP":{"prefix":"GP","kind":"Guest Panel","colors":{"color":"#E2F9D7"},"isBreak":false,"isCafe":false,"isWorkshop":false,"isHidden":false,"isRoomHours":false,"isTimeline":false,"isPrivate":false}}}"##;
         let data = WidgetExport::from_json(json).unwrap();
         assert_eq!(data.panel_types["GP"].prefix, "GP");
         assert_eq!(

@@ -6,7 +6,7 @@
 
 //! Time-grid layout computation: time slots, room columns, cell spans.
 
-use crate::model::{Panel, Room, ScheduleData};
+use crate::model::{panel_end_iso, panel_start_iso, Panel, Room, ScheduleData};
 use crate::time_fmt;
 
 /// A computed time slot in the grid.
@@ -67,6 +67,11 @@ impl GridLayout {
         window_start: Option<&str>,
         window_end: Option<&str>,
     ) -> Self {
+        // Times are epoch seconds; recover wall-clock ISO in the schedule's zone.
+        let tz = data.meta.timezone.as_str();
+        let start_iso = |p: &Panel| panel_start_iso(p, tz);
+        let end_iso = |p: &Panel| panel_end_iso(p, tz);
+
         let regular: Vec<&&Panel> = panels
             .iter()
             .filter(|p| {
@@ -75,7 +80,7 @@ impl GridLayout {
                     .get(p.panel_type.as_deref().unwrap_or(""))
                     .map(|pt| pt.is_break)
                     .unwrap_or(false)
-                    && p.start_time.is_some()
+                    && p.start_epoch.is_some()
             })
             .collect();
 
@@ -86,7 +91,7 @@ impl GridLayout {
                     .get(p.panel_type.as_deref().unwrap_or(""))
                     .map(|pt| pt.is_break)
                     .unwrap_or(false)
-                    && p.start_time.is_some()
+                    && p.start_epoch.is_some()
             })
             .collect();
 
@@ -122,10 +127,10 @@ impl GridLayout {
             .iter()
             .flat_map(|p| {
                 let mut keys = vec![];
-                if let Some(s) = &p.start_time {
+                if let Some(s) = start_iso(p) {
                     keys.push(s[..16.min(s.len())].to_string());
                 }
-                if let Some(e) = &p.end_time {
+                if let Some(e) = end_iso(p) {
                     keys.push(e[..16.min(e.len())].to_string());
                 }
                 keys
@@ -171,14 +176,8 @@ impl GridLayout {
         // Build cells, clamping rows to [0, n_slots) and recording truncation.
         let mut cells = vec![];
         for panel in &regular {
-            let start_key = panel
-                .start_time
-                .as_ref()
-                .map(|s| s[..16.min(s.len())].to_string());
-            let end_key = panel
-                .end_time
-                .as_ref()
-                .map(|s| s[..16.min(s.len())].to_string());
+            let start_key = start_iso(panel).map(|s| s[..16.min(s.len())].to_string());
+            let end_key = end_iso(panel).map(|s| s[..16.min(s.len())].to_string());
             if let (Some(sk), Some(ek)) = (start_key, end_key) {
                 // Detect truncation before doing any clamping.
                 let truncated_start = win_start.as_deref().is_some_and(|ws| sk.as_str() < ws);
@@ -223,14 +222,8 @@ impl GridLayout {
 
         let mut break_cells = vec![];
         for panel in &breaks {
-            let start_key = panel
-                .start_time
-                .as_ref()
-                .map(|s| s[..16.min(s.len())].to_string());
-            let end_key = panel
-                .end_time
-                .as_ref()
-                .map(|s| s[..16.min(s.len())].to_string());
+            let start_key = start_iso(panel).map(|s| s[..16.min(s.len())].to_string());
+            let end_key = end_iso(panel).map(|s| s[..16.min(s.len())].to_string());
             if let (Some(sk), Some(ek)) = (start_key, end_key) {
                 let truncated_start = win_start.as_deref().is_some_and(|ws| sk.as_str() < ws);
                 let truncated_end = win_end.as_deref().is_some_and(|we| ek.as_str() > we);

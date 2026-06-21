@@ -27,6 +27,10 @@ function _parsePanelElement(el) {
   if (d.panelType) panel.panelType = d.panelType;
   if (d.startTime) panel.startTime = d.startTime;
   if (d.endTime) panel.endTime = d.endTime;
+  // FEATURE-154: canonical epoch-seconds times (widget format v2). The
+  // normalizer derives wall-clock display times from these when present.
+  if (d.startEpoch !== undefined) panel.startEpoch = parseInt(d.startEpoch, 10);
+  if (d.endEpoch !== undefined) panel.endEpoch = parseInt(d.endEpoch, 10);
   if (d.partNum !== undefined) panel.partNum = parseInt(d.partNum, 10);
   if (d.sessionNum !== undefined) panel.sessionNum = parseInt(d.sessionNum, 10);
   if (d.totalParts !== undefined) panel.totalParts = parseInt(d.totalParts, 10);

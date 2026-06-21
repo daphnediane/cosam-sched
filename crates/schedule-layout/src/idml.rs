@@ -345,10 +345,11 @@ pub fn generate_idml(
 fn build_paragraphs(data: &ScheduleData, config: &LayoutConfig) -> Vec<Para> {
     let compact = matches!(config.content, ContentMode::PanelList { .. });
 
+    let tz = data.meta.timezone.as_str();
     let mut panels: Vec<&Panel> = filter_panels(data, config.panel_filter);
     panels.sort_by(|a, b| {
-        a.start_time
-            .cmp(&b.start_time)
+        a.start_epoch
+            .cmp(&b.start_epoch)
             .then_with(|| a.name.cmp(&b.name))
     });
 
@@ -357,7 +358,7 @@ fn build_paragraphs(data: &ScheduleData, config: &LayoutConfig) -> Vec<Para> {
     let mut cur_slot: Option<String> = None;
 
     for p in panels {
-        let start = p.start_time.as_deref().unwrap_or("");
+        let start = crate::model::panel_start_iso(p, tz).unwrap_or_default();
         let day_key = start.get(..10).unwrap_or("").to_string();
         let slot_key = start.get(..16).unwrap_or("").to_string();
 
@@ -431,7 +432,11 @@ fn day_heading(date: &str) -> String {
 /// The meta line: `time · room(s)` (compact) or `time · room(s) · presenters`.
 fn panel_meta(data: &ScheduleData, panel: &Panel, compact: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
-    let time = time_fmt::format_time_range(panel.start_time.as_deref(), panel.end_time.as_deref());
+    let tz = data.meta.timezone.as_str();
+    let time = time_fmt::format_time_range(
+        crate::model::panel_start_iso(panel, tz).as_deref(),
+        crate::model::panel_end_iso(panel, tz).as_deref(),
+    );
     if !time.is_empty() {
         parts.push(time);
     }
@@ -913,8 +918,9 @@ mod tests {
                     id: "P1".into(),
                     name: "Opening <Ceremony>".into(),
                     room_ids: vec![1],
-                    start_time: Some("2026-06-26T09:00:00".into()),
-                    end_time: Some("2026-06-26T10:00:00".into()),
+                    // 2026-06-26 09:00/10:00 UTC (empty meta timezone).
+                    start_epoch: Some(1_782_810_000),
+                    end_epoch: Some(1_782_813_600),
                     presenters: vec!["Ada".into()],
                     description: Some("Kick things off.".into()),
                     ..Panel::default()
@@ -923,8 +929,9 @@ mod tests {
                     id: "P2".into(),
                     name: "Cosplay 101".into(),
                     room_ids: vec![2],
-                    start_time: Some("2026-06-27T14:00:00".into()),
-                    end_time: Some("2026-06-27T15:00:00".into()),
+                    // 2026-06-27 14:00/15:00 UTC (empty meta timezone).
+                    start_epoch: Some(1_782_914_400),
+                    end_epoch: Some(1_782_918_000),
                     presenters: vec![],
                     ..Panel::default()
                 },

@@ -87,7 +87,7 @@ fn build_panels_html(export: &WidgetExport) -> Result<String> {
     let mut html = String::new();
     for panel in &export.panels {
         let attrs = build_panel_attrs(panel);
-        let children = build_panel_children(panel, &export.rooms);
+        let children = build_panel_children(panel, &export.rooms, &export.meta.timezone);
         html.push_str(&format!(
             "  <article class=\"cosam-panel\"{attrs}>\n{children}  </article>\n"
         ));
@@ -116,11 +116,13 @@ fn build_panel_attrs(panel: &schedule_core::widget_json::WidgetPanel) -> String 
         .join(" ");
     attrs.push_str(&format!(" data-room-ids=\"{room_ids_str}\""));
 
-    if let Some(st) = &panel.start_time {
-        attrs.push_str(&format!(" data-start-time=\"{}\"", escape_attr(st)));
+    // FEATURE-154: times are emitted as canonical epoch seconds (widget format
+    // v2). The human-readable wall-clock lives in the `<time>` element below.
+    if let Some(se) = panel.start_epoch {
+        attrs.push_str(&format!(" data-start-epoch=\"{se}\""));
     }
-    if let Some(et) = &panel.end_time {
-        attrs.push_str(&format!(" data-end-time=\"{}\"", escape_attr(et)));
+    if let Some(ee) = panel.end_epoch {
+        attrs.push_str(&format!(" data-end-epoch=\"{ee}\""));
     }
     attrs.push_str(&format!(" data-duration=\"{}\"", panel.duration));
     attrs.push_str(&format!(" data-is-premium=\"{}\"", panel.is_premium));
@@ -158,11 +160,12 @@ fn build_panel_attrs(panel: &schedule_core::widget_json::WidgetPanel) -> String 
 fn build_panel_children(
     panel: &schedule_core::widget_json::WidgetPanel,
     rooms: &[WidgetRoom],
+    tz_name: &str,
 ) -> String {
     let mut children = String::new();
 
     // Header: name, time, rooms
-    let time_html = build_time_element(&panel.start_time, &panel.end_time);
+    let time_html = build_time_element(panel.start_epoch, panel.end_epoch, tz_name);
     let rooms_text = build_rooms_text(&panel.room_ids, rooms);
 
     children.push_str("    <header>\n");
@@ -222,19 +225,23 @@ fn build_panel_children(
 
 // ── Time formatting ───────────────────────────────────────────────────────────
 
-fn build_time_element(start: &Option<String>, end: &Option<String>) -> String {
-    let Some(start_str) = start else {
+fn build_time_element(start: Option<i64>, end: Option<i64>, tz_name: &str) -> String {
+    let Some(start_epoch) = start else {
         return String::new();
     };
+    // The `datetime` attribute stays a local wall-clock ISO string for HTML5/SEO
+    // (FEATURE-154); it is derived from the canonical epoch in the meta timezone.
+    let start_str = schedule_core::value::timezone::epoch_to_local_iso(start_epoch, tz_name);
+    let end_str = end.map(|e| schedule_core::value::timezone::epoch_to_local_iso(e, tz_name));
 
-    let display = match end {
-        Some(end_str) => format_time_range(start_str, end_str),
-        None => format_single_time(start_str),
+    let display = match &end_str {
+        Some(end_str) => format_time_range(&start_str, end_str),
+        None => format_single_time(&start_str),
     };
 
     format!(
         "      <time class=\"cosam-panel-time\" datetime=\"{}\">{}</time>\n",
-        escape_attr(start_str),
+        escape_attr(&start_str),
         escape_html(&display)
     )
 }
@@ -300,12 +307,13 @@ mod tests {
         WidgetExport {
             meta: WidgetMeta {
                 title: "Test Schedule".to_string(),
-                version: 1,
+                version: 2,
                 generator: "test".to_string(),
                 generated: "2026-01-01T00:00:00Z".to_string(),
                 modified: "2026-01-01T00:00:00Z".to_string(),
-                start_time: "2026-06-26T10:00:00".to_string(),
-                end_time: "2026-06-28T18:00:00".to_string(),
+                // 2026-06-26T10:00 and 2026-06-28T18:00 in America/New_York (EDT).
+                start_epoch: 1_782_482_400,
+                end_epoch: 1_782_684_000,
                 timezone: "America/New_York".to_string(),
                 vtimezone: String::new(),
             },
@@ -326,8 +334,9 @@ mod tests {
                 name: "Test Panel".to_string(),
                 panel_type: Some("GP".to_string()),
                 room_ids: vec![1],
-                start_time: Some("2026-06-26T14:00:00".to_string()),
-                end_time: Some("2026-06-26T15:00:00".to_string()),
+                // 2026-06-26T14:00 and 15:00 in America/New_York (EDT).
+                start_epoch: Some(1_782_496_800),
+                end_epoch: Some(1_782_500_400),
                 duration: 60,
                 description: Some("A test panel.".to_string()),
                 credits: vec!["Presenter One".to_string()],
@@ -364,6 +373,15 @@ mod tests {
         assert!(
             html.contains("data-is-premium=\"false\""),
             "is-premium attribute"
+        );
+        // FEATURE-154: epoch-seconds attributes (widget format v2).
+        assert!(
+            html.contains("data-start-epoch=\"1782496800\""),
+            "start-epoch attribute"
+        );
+        assert!(
+            html.contains("data-end-epoch=\"1782500400\""),
+            "end-epoch attribute"
         );
     }
 

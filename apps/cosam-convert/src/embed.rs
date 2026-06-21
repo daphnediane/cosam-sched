@@ -664,7 +664,8 @@ pub fn write_test_html_widget_html(
     minified: bool,
     style_page: Option<bool>,
 ) -> Result<()> {
-    let html = generate_test_html_widget_html(export, config, title, sources, minified, style_page)?;
+    let html =
+        generate_test_html_widget_html(export, config, title, sources, minified, style_page)?;
     write_html_file(path, &html, "test HTML (widget-html)")
 }
 

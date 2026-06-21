@@ -180,6 +180,31 @@ import QRCode from 'qrcode';
     return isoStr.substring(0, 16); // YYYY-MM-DDTHH:MM
   }
 
+  // FEATURE-154: Convert Unix epoch seconds to a naive wall-clock ISO string
+  // (`YYYY-MM-DDTHH:MM:SS`) expressed in the given IANA timezone. The rest of the
+  // widget parses these with `new Date(iso)` (i.e. as browser-local), which keeps
+  // the wall-clock digits intact for display and time-slot bucketing. Returns ''
+  // for non-numeric input. An unrecognized timezone falls back to UTC.
+  function epochToLocalIso(epochSec, tzName) {
+    if (typeof epochSec !== 'number' || !isFinite(epochSec)) return '';
+    const format = (tz) => {
+      const fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hourCycle: 'h23',
+      });
+      const parts = {};
+      for (const p of fmt.formatToParts(new Date(epochSec * 1000))) parts[p.type] = p.value;
+      return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+    };
+    try {
+      return format(tzName || 'UTC');
+    } catch (e) {
+      return format('UTC');
+    }
+  }
+
   // Fill in regular time-unit keys between the earliest and latest of event boundaries,
   // so the print grid has an even time axis — one row per unit — even where no
   // event starts or ends. The unit is based on minute components of event start/end times
@@ -1112,10 +1137,36 @@ import QRCode from 'qrcode';
           }));
       }
 
+      // FEATURE-154: derive wall-clock ISO times from the canonical epoch-seconds
+      // fields (interpreted in meta.timezone) so display and time-slot bucketing
+      // are timezone-correct and no longer depend on the emitted ISO strings.
+      // Pre-v2 data without epoch keeps its existing naive ISO strings.
+      const tzName = (data.meta && data.meta.timezone) || 'UTC';
+      const localizedPanels = panels.map(p => {
+        if (typeof p.startEpoch !== 'number' && typeof p.endEpoch !== 'number') return p;
+        const out = { ...p };
+        if (typeof p.startEpoch === 'number') out.startTime = epochToLocalIso(p.startEpoch, tzName);
+        if (typeof p.endEpoch === 'number') out.endTime = epochToLocalIso(p.endEpoch, tzName);
+        return out;
+      });
+      const localizedTimeline = Array.isArray(data.timeline)
+        ? data.timeline.map(t => (typeof t.startEpoch === 'number'
+          ? { ...t, startTime: epochToLocalIso(t.startEpoch, tzName) }
+          : t))
+        : data.timeline;
+      let meta = data.meta;
+      if (meta && (meta.startEpoch || meta.endEpoch)) {
+        meta = { ...meta };
+        if (meta.startEpoch) meta.startTime = epochToLocalIso(meta.startEpoch, tzName);
+        if (meta.endEpoch) meta.endTime = epochToLocalIso(meta.endEpoch, tzName);
+      }
+
       return {
         ...data,
+        meta,
         panelTypes,
-        panels,
+        panels: localizedPanels,
+        timeline: localizedTimeline,
         presenters,
         rooms,
         presenterToPanels

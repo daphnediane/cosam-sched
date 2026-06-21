@@ -202,6 +202,33 @@ pub fn date_midnight(date: NaiveDate) -> NaiveDateTime {
     date.and_hms_opt(0, 0, 0).expect("midnight is always valid")
 }
 
+/// Convert Unix epoch seconds to a naive wall-clock datetime expressed in the
+/// named IANA timezone (FEATURE-154). An empty or unrecognized zone is treated
+/// as UTC, mirroring the export-side interpretation. This is the inverse of the
+/// naive-wall-clock → epoch conversion performed during widget export.
+#[must_use]
+pub fn epoch_to_local(epoch: i64, tz_name: &str) -> NaiveDateTime {
+    let tz = parse_tz(tz_name).unwrap_or(Tz::UTC);
+    tz.timestamp_opt(epoch, 0)
+        .single()
+        .map(|dt| dt.naive_local())
+        .unwrap_or_else(|| {
+            chrono::DateTime::from_timestamp(epoch, 0)
+                .unwrap_or_default()
+                .naive_utc()
+        })
+}
+
+/// Format epoch seconds as the naive wall-clock ISO 8601 string
+/// (`%Y-%m-%dT%H:%M:%S`) in the named timezone — the same shape the widget
+/// formats previously carried, for consumers that still operate on strings.
+#[must_use]
+pub fn epoch_to_local_iso(epoch: i64, tz_name: &str) -> String {
+    epoch_to_local(epoch, tz_name)
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

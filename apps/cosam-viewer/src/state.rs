@@ -168,7 +168,10 @@ impl ViewerState {
             .iter()
             .filter_map(|p| {
                 // Only show panels with a start time on the selected day (or any day).
-                let start = parse_datetime(p.start_time.as_deref())?;
+                // Times are epoch seconds; resolve to wall-clock in the schedule's zone.
+                let start = p
+                    .start_epoch
+                    .map(|e| schedule_core::value::timezone::epoch_to_local(e, &doc.meta.timezone))?;
                 if let Some(day) = selected_day {
                     if start.date() != day {
                         return None;
@@ -225,7 +228,9 @@ impl ViewerState {
                     }
                 }
 
-                let end = parse_datetime(p.end_time.as_deref());
+                let end = p
+                    .end_epoch
+                    .map(|e| schedule_core::value::timezone::epoch_to_local(e, &doc.meta.timezone));
                 let time_str = format_time_range(Some(start), end);
                 let room_names = p
                     .room_ids
@@ -298,24 +303,16 @@ fn collect_days(doc: &ScheduleDoc) -> Vec<NaiveDate> {
     use std::collections::BTreeSet;
     let mut dates: BTreeSet<NaiveDate> = BTreeSet::new();
     for panel in &doc.panels {
-        if let Some(dt) = parse_datetime(panel.start_time.as_deref()) {
+        if let Some(dt) = panel
+            .start_epoch
+            .map(|e| schedule_core::value::timezone::epoch_to_local(e, &doc.meta.timezone))
+        {
             dates.insert(dt.date());
         }
     }
     dates.into_iter().collect()
 }
 
-/// Parse an ISO-8601 / RFC 3339 datetime string (widget JSON uses e.g. "2026-07-03T10:00:00").
-pub fn parse_datetime(s: Option<&str>) -> Option<chrono::NaiveDateTime> {
-    let s = s?;
-    // Try naive datetime first, then strip tz offset.
-    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
-        return Some(dt);
-    }
-    // Fallback: truncate timezone and retry.
-    let trimmed = s.get(..19)?;
-    chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S").ok()
-}
 
 fn format_time_range(
     start: Option<chrono::NaiveDateTime>,

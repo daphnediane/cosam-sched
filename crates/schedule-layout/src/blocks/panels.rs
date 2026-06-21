@@ -62,18 +62,18 @@ pub(crate) fn render_time_grouped_panels<'a>(
     panels: &[&'a Panel],
     style: &PanelStyle,
 ) -> String {
-    let (by_base, time_groups) = build_time_groups(panels);
+    let tz = data.meta.timezone.as_str();
+    let (by_base, time_groups) = build_time_groups(panels, tz);
 
     let mut out = String::new();
     let mut slot_counter = 0u32;
 
     // Collect unique days for smart label generation
-    let all_days: Vec<&str> = panels
+    let day_strings: std::collections::HashSet<String> = panels
         .iter()
-        .filter_map(|p| p.start_time.as_deref().and_then(|s| s.get(..10)))
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
+        .filter_map(|p| crate::model::panel_start_iso(p, tz).map(|s| s[..10.min(s.len())].to_string()))
         .collect();
+    let all_days: Vec<&str> = day_strings.iter().map(|s| s.as_str()).collect();
 
     // Sticky show rule so level-2 headings never orphan at a column bottom.
     out.push_str("#show heading.where(level: 2): set block(sticky: true)\n\n");
@@ -205,21 +205,21 @@ pub(crate) fn render_panel_list<'a>(
     color_mode: ColorMode,
     panels: &[&'a Panel],
 ) -> String {
-    // Stable chronological order.
+    let tz = data.meta.timezone.as_str();
+
+    // Stable chronological order (epoch; unscheduled sort first as before).
     let mut ordered: Vec<&Panel> = panels.to_vec();
     ordered.sort_by(|a, b| {
-        a.start_time
-            .as_deref()
-            .unwrap_or("")
-            .cmp(b.start_time.as_deref().unwrap_or(""))
+        a.start_epoch
+            .unwrap_or(i64::MIN)
+            .cmp(&b.start_epoch.unwrap_or(i64::MIN))
     });
 
-    let all_days: Vec<&str> = ordered
+    let day_strings: HashSet<String> = ordered
         .iter()
-        .filter_map(|p| p.start_time.as_deref().and_then(|s| s.get(..10)))
-        .collect::<HashSet<_>>()
-        .into_iter()
+        .filter_map(|p| crate::model::panel_start_iso(p, tz).map(|s| s[..10.min(s.len())].to_string()))
         .collect();
+    let all_days: Vec<&str> = day_strings.iter().map(|s| s.as_str()).collect();
 
     let mut out = String::new();
 
@@ -234,17 +234,18 @@ pub(crate) fn render_panel_list<'a>(
     // rows; each panel is one row. Sharing one grid means the `auto` time column
     // is a single track, so every panel name aligns no matter how wide its time
     // range is. (Per-panel grids each sized their own column and misaligned.)
-    let mut current_day = "";
+    let mut current_day = String::new();
     let mut rows = String::new();
     for panel in &ordered {
-        let day_str = panel
-            .start_time
+        let start_iso = crate::model::panel_start_iso(panel, tz);
+        let day_str = start_iso
             .as_deref()
             .and_then(|s| s.get(..10))
-            .unwrap_or("");
+            .unwrap_or("")
+            .to_string();
         if day_str != current_day {
-            current_day = day_str;
-            let label = crate::typst_gen::make_day_label(day_str, &all_days);
+            current_day = day_str.clone();
+            let label = crate::typst_gen::make_day_label(&day_str, &all_days);
             // Day separator: a heading spanning all four columns.
             rows.push_str(&format!(
                 "  grid.cell(colspan: 4, align: left)[#heading(level: 2)[{}]],\n",
@@ -275,13 +276,8 @@ pub(crate) fn render_panel_list<'a>(
 
         // Plain time strings ("2 PM", "1:30 PM", "Noon"), joined into a single
         // "2 PM – 3 PM" range in one left-aligned cell.
-        let start = panel
-            .start_time
-            .as_deref()
-            .map(time_fmt::format_time)
-            .unwrap_or_default();
-        let end = panel
-            .end_time
+        let start = start_iso.as_deref().map(time_fmt::format_time).unwrap_or_default();
+        let end = crate::model::panel_end_iso(panel, tz)
             .as_deref()
             .map(time_fmt::format_time)
             .unwrap_or_default();
@@ -347,7 +343,7 @@ const SECONDARY_SIZE: &str = crate::fonts::DESC_SECONDARY_SIZE_VAR;
 /// Build the `by_base` lookup and ordered `time_groups` for a panel slice.
 ///
 /// Panels are deduplicated by `id`; time groups maintain insertion order.
-fn build_time_groups<'a>(panels: &[&'a Panel]) -> TimeGroups<'a> {
+fn build_time_groups<'a>(panels: &[&'a Panel], tz: &str) -> TimeGroups<'a> {
     let mut by_base: HashMap<&'a str, Vec<&'a Panel>> = HashMap::new();
     for p in panels.iter().copied() {
         by_base.entry(p.base_id.as_str()).or_default().push(p);
@@ -359,12 +355,9 @@ fn build_time_groups<'a>(panels: &[&'a Panel]) -> TimeGroups<'a> {
         if !seen_ids.insert(panel.id.as_str()) {
             continue;
         }
-        let key = panel
-            .start_time
-            .as_deref()
-            .and_then(|s| s.get(..16))
-            .unwrap_or("")
-            .to_string();
+        let key = crate::model::panel_start_iso(panel, tz)
+            .map(|s| s[..16.min(s.len())].to_string())
+            .unwrap_or_default();
         if let Some(group) = time_groups.iter_mut().find(|(k, _)| k == &key) {
             group.1.push(panel);
         } else {
@@ -397,8 +390,11 @@ fn panel_block<'a>(
         .map(|c| c.hex)
         .unwrap_or_default();
 
-    let time_range =
-        time_fmt::format_time_range(panel.start_time.as_deref(), panel.end_time.as_deref());
+    let tz = data.meta.timezone.as_str();
+    let time_range = time_fmt::format_time_range(
+        crate::model::panel_start_iso(panel, tz).as_deref(),
+        crate::model::panel_end_iso(panel, tz).as_deref(),
+    );
 
     let room_str = panel
         .room_ids
@@ -515,12 +511,12 @@ fn panel_block<'a>(
 
     // Prereq block - uses base font size
     if let Some(prereq) = panel.prereq.as_deref().filter(|p| !p.is_empty()) {
-        let prereq_content = resolve_prereq(prereq, day_date, &data.panels);
+        let prereq_content = resolve_prereq(prereq, day_date, &data.panels, tz);
         block.push_str(&format!("\n{}\n", prereq_content));
     }
 
     // Cross-references (parts and reruns) - use base font size
-    let xrefs = build_cross_refs(panel, by_base);
+    let xrefs = build_cross_refs(panel, by_base, tz);
     for xref in &xrefs {
         block.push_str(&format!("\n{}\n", escape_typst(xref)));
     }
@@ -613,7 +609,7 @@ fn workshop_cap_notice(data: &ScheduleData, panel: &Panel) -> Option<String> {
 /// Tokens that parse as a valid `PanelUniqId` and match a panel are shown as
 /// `"Prereq: Panel Name: Saturday 4:00 PM"`.  Unresolved tokens are shown as
 /// italic text.
-fn resolve_prereq(prereq: &str, day_date: &str, all_panels: &[Panel]) -> String {
+fn resolve_prereq(prereq: &str, day_date: &str, all_panels: &[Panel], tz: &str) -> String {
     let tokens: Vec<&str> = prereq
         .split([',', ';'])
         .map(str::trim)
@@ -632,8 +628,7 @@ fn resolve_prereq(prereq: &str, day_date: &str, all_panels: &[Panel]) -> String 
                 .find(|p| p.id == full)
                 .or_else(|| all_panels.iter().find(|p| p.base_id == base));
             if let Some(p) = found {
-                let time_label = p
-                    .start_time
+                let time_label = crate::model::panel_start_iso(p, tz)
                     .as_deref()
                     .map(|t| time_fmt::format_weekday_time(t, day_date))
                     .unwrap_or_default();
@@ -660,6 +655,7 @@ fn resolve_prereq(prereq: &str, day_date: &str, all_panels: &[Panel]) -> String 
 fn build_cross_refs<'a>(
     panel: &'a Panel,
     by_base: &HashMap<&'a str, Vec<&'a Panel>>,
+    tz: &str,
 ) -> Vec<String> {
     let related: &[&Panel] = by_base
         .get(panel.base_id.as_str())
@@ -687,7 +683,7 @@ fn build_cross_refs<'a>(
         part_keys.sort_unstable();
         for part in part_keys {
             let mut sessions = by_part[&part].clone();
-            sessions.sort_by_key(|p| p.start_time.as_deref().unwrap_or(""));
+            sessions.sort_by_key(|p| p.start_epoch.unwrap_or(i64::MIN));
             let mut first = true;
             for p in sessions {
                 let label = if first {
@@ -696,8 +692,7 @@ fn build_cross_refs<'a>(
                     format!("or Part {}", part)
                 };
                 first = false;
-                let time_str = p
-                    .start_time
+                let time_str = crate::model::panel_start_iso(p, tz)
                     .as_deref()
                     .map(|t| time_fmt::format_weekday_time(t, ""))
                     .unwrap_or_default();
@@ -706,10 +701,9 @@ fn build_cross_refs<'a>(
         }
     } else if panel.session_num.is_some() {
         let mut sorted = others.clone();
-        sorted.sort_by_key(|p| p.start_time.as_deref().unwrap_or(""));
+        sorted.sort_by_key(|p| p.start_epoch.unwrap_or(i64::MIN));
         for p in sorted {
-            let time_str = p
-                .start_time
+            let time_str = crate::model::panel_start_iso(p, tz)
                 .as_deref()
                 .map(|t| time_fmt::format_weekday_time(t, ""))
                 .unwrap_or_default();

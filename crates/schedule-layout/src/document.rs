@@ -34,7 +34,10 @@ use crate::blocks::panels::{render_panel_list, render_time_grouped_panels, Panel
 use crate::brand::BrandConfig;
 use crate::color::ColorMode;
 use crate::config::{ContentMode, FooterMode, LayoutConfig, PanelFilter, SectionSplit, TimeSplit};
-use crate::model::{Panel, ScheduleData, TimelineEntry};
+use crate::model::{
+    meta_end_iso, meta_start_iso, panel_end_iso, panel_start_iso, timeline_start_iso, Panel,
+    ScheduleData, TimelineEntry,
+};
 use crate::timegrid::GridLayout;
 use crate::typst_gen::{make_day_label, preamble};
 
@@ -348,12 +351,6 @@ fn is_workshop(data: &ScheduleData, panel: &Panel) -> bool {
 /// ISO 8601 datetime strings used to clamp the grid to the section boundary.
 type TimedSection<'a> = (String, Vec<&'a Panel>, Option<String>, Option<String>);
 
-/// Borrow a string as `Some` only when non-empty (the widget format uses `""`
-/// for "absent" naive datetimes rather than omitting the field).
-fn non_empty(s: &str) -> Option<&str> {
-    (!s.is_empty()).then_some(s)
-}
-
 /// Flatten `by_day` into time-labeled panel slices for `time`.
 fn time_sections<'a>(
     time: &TimeSplit,
@@ -362,6 +359,7 @@ fn time_sections<'a>(
     timeline: &[TimelineEntry],
     schedule_start: Option<&str>,
     schedule_end: Option<&str>,
+    tz: &str,
 ) -> Vec<TimedSection<'a>> {
     match time {
         TimeSplit::Day => by_day
@@ -372,13 +370,13 @@ fn time_sections<'a>(
             .iter()
             .flat_map(|(date, panels)| {
                 let day_label = make_day_label(date, all_dates);
-                split_halves(&day_label, date, panels)
+                split_halves(&day_label, date, panels, tz)
             })
             .collect(),
-        TimeSplit::Timeline => split_on_timeline(by_day, all_dates, timeline),
+        TimeSplit::Timeline => split_on_timeline(by_day, all_dates, timeline, tz),
         TimeSplit::Custom(ct) => {
             if let (Some(start), Some(end)) = (schedule_start, schedule_end) {
-                split_on_custom_timeline(by_day, start, end, ct)
+                split_on_custom_timeline(by_day, start, end, ct, tz)
             } else {
                 // Fallback to day split if no schedule range available
                 by_day
@@ -405,15 +403,20 @@ fn split_on_timeline<'a>(
     by_day: &[(String, Vec<&'a Panel>)],
     all_dates: &[&str],
     timeline: &[TimelineEntry],
+    tz: &str,
 ) -> Vec<TimedSection<'a>> {
     // Build a sorted list of (date, start_time_str, label) from timeline entries
-    // that have a start_time. Entries without a time are skipped.
-    let mut tl_boundaries: Vec<(&str, &str, &str)> = timeline
+    // that have a start time. Entries without a time are skipped. The ISO start
+    // is derived from the entry's epoch in the schedule timezone.
+    let tl_starts: Vec<(String, &str)> = timeline
         .iter()
-        .filter_map(|t| {
-            let start = non_empty(&t.start_time)?;
+        .filter_map(|t| timeline_start_iso(t, tz).map(|s| (s, t.name.as_str())))
+        .collect();
+    let mut tl_boundaries: Vec<(&str, &str, &str)> = tl_starts
+        .iter()
+        .filter_map(|(start, name)| {
             let date = start.get(..10)?;
-            Some((date, start, t.name.as_str()))
+            Some((date, start.as_str(), *name))
         })
         .collect();
     // Sort by start_time so boundaries are in chronological order.
@@ -441,7 +444,7 @@ fn split_on_timeline<'a>(
         // Assign each panel to the latest boundary whose start_time ≤ panel start_time.
         // Panels before the first boundary fall into a catch-all keyed by the day label.
         let section_label_for = |panel: &&'a Panel| -> String {
-            let panel_start = match panel.start_time.as_deref() {
+            let panel_start = match panel_start_iso(panel, tz) {
                 Some(s) => s,
                 None => return day_label.clone(),
             };
@@ -449,7 +452,7 @@ fn split_on_timeline<'a>(
             day_boundaries
                 .iter()
                 .rev()
-                .find(|(bstart, _)| *bstart <= panel_start)
+                .find(|(bstart, _)| *bstart <= panel_start.as_str())
                 .map(|(_, name)| name.to_string())
                 .unwrap_or_else(|| day_label.clone())
         };
@@ -510,6 +513,7 @@ fn split_on_custom_timeline<'a>(
     schedule_start: &str,
     schedule_end: &str,
     custom_timeline: &crate::config::CustomTimeline,
+    tz: &str,
 ) -> Vec<TimedSection<'a>> {
     use crate::config::CustomTimeSlot;
 
@@ -579,7 +583,8 @@ fn split_on_custom_timeline<'a>(
     // Assign a panel to the slot whose window it falls within, or to the
     // before-section if the panel precedes the first slot.
     let section_label_for = |panel: &&'a Panel| -> Option<String> {
-        let panel_start = panel.start_time.as_deref()?;
+        let panel_start = panel_start_iso(panel, tz)?;
+        let panel_start = panel_start.as_str();
         if panel_start < first_slot_start {
             return before_label.clone();
         }
@@ -644,15 +649,15 @@ fn split_on_custom_timeline<'a>(
 /// added to `grid_panels` only so the grid can show them with a truncated-start
 /// visual; they are deliberately excluded from `content_panels` to avoid
 /// duplicating descriptions in sections where the panel did not begin.
-fn spanning_into<'a>(all_panels: &[&'a Panel], window_start: &str) -> Vec<&'a Panel> {
+fn spanning_into<'a>(all_panels: &[&'a Panel], window_start: &str, tz: &str) -> Vec<&'a Panel> {
     all_panels
         .iter()
         .copied()
         .filter(|p| {
-            let start = p.start_time.as_deref().unwrap_or("");
-            let end = p.end_time.as_deref().unwrap_or("");
+            let start = panel_start_iso(p, tz).unwrap_or_default();
+            let end = panel_end_iso(p, tz).unwrap_or_default();
             // Panel started before the window and ends after it begins.
-            start < window_start && end > window_start
+            start.as_str() < window_start && end.as_str() > window_start
         })
         .collect()
 }
@@ -663,9 +668,13 @@ fn build_sections<'a>(
     data: &ScheduleData,
     panels: &[&'a Panel],
 ) -> Vec<Section<'a>> {
-    let all_date_strs: Vec<String> = unique_days(panels);
+    let tz = data.meta.timezone.as_str();
+    // Schedule window as local-wall-clock ISO, used for loose-time resolution.
+    let meta_start = meta_start_iso(&data.meta);
+    let meta_end = meta_end_iso(&data.meta);
+    let all_date_strs: Vec<String> = unique_days(panels, tz);
     let all_dates: Vec<&str> = all_date_strs.iter().map(String::as_str).collect();
-    let by_day = group_by_day(panels);
+    let by_day = group_by_day(panels, tz);
 
     match (config.content.section_split(), config.content.time_split()) {
         (None, None) => vec![Section {
@@ -685,13 +694,14 @@ fn build_sections<'a>(
             &by_day,
             &all_dates,
             &data.timeline,
-            non_empty(&data.meta.start_time),
-            non_empty(&data.meta.end_time),
+            meta_start.as_deref(),
+            meta_end.as_deref(),
+            tz,
         )
         .into_iter()
         .map(|(label, time_panels, win_start, win_end)| {
             let grid_panels = if let Some(ref ws) = win_start {
-                let mut gp = spanning_into(panels, ws);
+                let mut gp = spanning_into(panels, ws, tz);
                 gp.extend_from_slice(&time_panels);
                 gp
             } else {
@@ -748,8 +758,9 @@ fn build_sections<'a>(
                     &by_day,
                     &all_dates,
                     &data.timeline,
-                    non_empty(&data.meta.start_time),
-                    non_empty(&data.meta.end_time),
+                    meta_start.as_deref(),
+                    meta_end.as_deref(),
+                    tz,
                 )
                 .into_iter()
                 .filter_map(move |(time_label, time_panels, win_start, win_end)| {
@@ -763,7 +774,7 @@ fn build_sections<'a>(
                     }
                     // grid_panels: time section panels + spanning ones for this room.
                     let grid_panels = if let Some(ref ws) = win_start {
-                        let mut gp: Vec<&Panel> = spanning_into(panels, ws)
+                        let mut gp: Vec<&Panel> = spanning_into(panels, ws, tz)
                             .into_iter()
                             .filter(|p| p.room_ids.contains(&room.uid))
                             .collect();
@@ -825,8 +836,9 @@ fn build_sections<'a>(
                     &by_day,
                     &all_dates,
                     &data.timeline,
-                    non_empty(&data.meta.start_time),
-                    non_empty(&data.meta.end_time),
+                    meta_start.as_deref(),
+                    meta_end.as_deref(),
+                    tz,
                 )
                 .into_iter()
                 .filter_map(move |(time_label, time_panels, win_start, win_end)| {
@@ -841,7 +853,7 @@ fn build_sections<'a>(
                     let ids: HashSet<String> = his.iter().map(|p| p.id.clone()).collect();
                     // grid_panels: time section panels + spanning ones for this presenter.
                     let grid_panels = if let Some(ref ws) = win_start {
-                        let mut gp: Vec<&Panel> = spanning_into(panels, ws)
+                        let mut gp: Vec<&Panel> = spanning_into(panels, ws, tz)
                             .into_iter()
                             .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
                             .collect();
@@ -878,13 +890,13 @@ fn room_name(room: &crate::model::Room) -> String {
 }
 
 /// Unique calendar days (YYYY-MM-DD) present in the panel set, first-seen order.
-fn unique_days(panels: &[&Panel]) -> Vec<String> {
+fn unique_days(panels: &[&Panel], tz: &str) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut days = vec![];
     for p in panels {
-        if let Some(d) = p.start_time.as_deref().and_then(|s| s.get(..10)) {
-            if seen.insert(d.to_string()) {
-                days.push(d.to_string());
+        if let Some(d) = panel_start_iso(p, tz).and_then(|s| s.get(..10).map(str::to_string)) {
+            if seen.insert(d.clone()) {
+                days.push(d);
             }
         }
     }
@@ -892,10 +904,10 @@ fn unique_days(panels: &[&Panel]) -> Vec<String> {
 }
 
 /// Group scheduled panels by calendar day, preserving first-seen order.
-fn group_by_day<'a>(panels: &[&'a Panel]) -> Vec<(String, Vec<&'a Panel>)> {
+fn group_by_day<'a>(panels: &[&'a Panel], tz: &str) -> Vec<(String, Vec<&'a Panel>)> {
     let mut by_day: Vec<(String, Vec<&'a Panel>)> = vec![];
     for panel in panels {
-        if let Some(start) = &panel.start_time {
+        if let Some(start) = panel_start_iso(panel, tz) {
             let date = start.get(..10).unwrap_or("unknown").to_string();
             if let Some(entry) = by_day.iter_mut().find(|(d, _)| d == &date) {
                 entry.1.push(panel);
@@ -912,12 +924,16 @@ fn group_by_day<'a>(panels: &[&'a Panel]) -> Vec<(String, Vec<&'a Panel>)> {
 /// `date` is the `YYYY-MM-DD` string for the day being split; it is used to
 /// build the noon window boundary (`YYYY-MM-DDT12:00`) so that panels which
 /// span the AM/PM boundary are visually clamped in each half's grid.
-fn split_halves<'a>(day_label: &str, date: &str, panels: &[&'a Panel]) -> Vec<TimedSection<'a>> {
+fn split_halves<'a>(
+    day_label: &str,
+    date: &str,
+    panels: &[&'a Panel],
+    tz: &str,
+) -> Vec<TimedSection<'a>> {
     let hour_of = |p: &&'a Panel| -> Option<u32> {
-        p.start_time
-            .as_ref()
-            .and_then(|s| s.get(11..13))
-            .and_then(|h| h.parse::<u32>().ok())
+        panel_start_iso(p, tz)
+            .as_deref()
+            .and_then(|s| s.get(11..13).and_then(|h| h.parse::<u32>().ok()))
     };
 
     let noon = format!("{}T12:00", date);
@@ -971,13 +987,21 @@ mod tests {
     }
 
     fn panel(id: &str, day_hour: &str, room: i32, presenter: &str) -> Panel {
+        // Tests use an empty meta timezone, so wall-clock is interpreted as UTC.
+        let epoch = chrono::NaiveDateTime::parse_from_str(
+            &format!("2026-06-{day_hour}:00"),
+            "%Y-%m-%dT%H:%M",
+        )
+        .unwrap()
+        .and_utc()
+        .timestamp();
         Panel {
             id: id.into(),
             base_id: id.into(),
             name: format!("Panel {id}"),
             room_ids: vec![room],
-            start_time: Some(format!("2026-06-{day_hour}:00")),
-            end_time: Some(format!("2026-06-{day_hour}:00")),
+            start_epoch: Some(epoch),
+            end_epoch: Some(epoch),
             presenters: if presenter.is_empty() {
                 vec![]
             } else {

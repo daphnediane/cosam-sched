@@ -441,6 +441,7 @@ fn render_event_cell(
     is_highlighted: bool,
 ) {
     let panel = &cell.panel;
+    let tz = data.meta.timezone.as_str();
     let rowspan = (cell.row_end - cell.row_start).max(1);
     let color_str = panel
         .panel_type
@@ -543,8 +544,7 @@ fn render_event_cell(
 
     // "↑ cont from X PM" label shown as the first text line of a top-truncated cell.
     let cont_from_str = if cell.truncated_start {
-        let orig_start = panel
-            .start_time
+        let orig_start = crate::model::panel_start_iso(panel, tz)
             .as_deref()
             .map(time_fmt::format_time)
             .unwrap_or_default();

@@ -21,48 +21,57 @@ print formats) lives in a separate `ScheduleConfig` structure documented in
 
 ## Version Information
 
-- **Format Version**: 1
+- **Format Version**: 2
 - **Purpose**: Widget consumption and public schedule display
 - **Generator**: cosam-convert or cosam-editor
+
+> **Version 2 (FEATURE-154):** time fields are Unix epoch seconds (`startEpoch`,
+> `endEpoch` on `meta`/`panels`, `startEpoch` on `timeline`) — the canonical,
+> timezone-unambiguous form. The pre-v2 naive ISO strings (`startTime`/`endTime`)
+> are no longer emitted. Combine the epoch with `meta.timezone` to recover the
+> local wall-clock. Version 1 files used naive ISO strings; consumers that still
+> read those should treat them as wall-clock in `meta.timezone`.
 
 ## Meta
 
 Metadata describing the schedule file.
 
-| Field     | Type    | Description                                                              |
-| --------- | ------- | ------------------------------------------------------------------------ |
-| title     | String  | Schedule title (e.g., "Event Schedule 2026")                             |
-| version   | Integer | Widget JSON format version (currently `1`); consumers branch on this     |
-| generator | String  | Generator software and version                                           |
-| generated | String  | ISO 8601 timestamp when file was generated                               |
-| modified  | String  | Excel last modified timestamp                                            |
-| startTime | String  | Schedule start time (ISO 8601, naive — in `timezone`)                    |
-| endTime   | String  | Schedule end time (ISO 8601, naive — in `timezone`)                      |
-| timezone  | String  | IANA timezone name the naive timestamps are expressed in ("" if unknown) |
-| vtimezone | String  | Precomputed iCalendar `VTIMEZONE` component for `timezone` ("" if none)  |
+| Field      | Type    | Description                                                                |
+| ---------- | ------- | -------------------------------------------------------------------------- |
+| title      | String  | Schedule title (e.g., "Event Schedule 2026")                               |
+| version    | Integer | Widget JSON format version (currently `2`); consumers branch on this       |
+| generator  | String  | Generator software and version                                             |
+| generated  | String  | ISO 8601 timestamp when file was generated                                 |
+| modified   | String  | Excel last modified timestamp                                              |
+| startEpoch | Integer | Schedule start as Unix epoch seconds (canonical)                           |
+| endEpoch   | Integer | Schedule end as Unix epoch seconds (canonical)                             |
+| timezone   | String  | IANA timezone name used to render the epochs as wall-clock ("" if unknown) |
+| vtimezone  | String  | Precomputed iCalendar `VTIMEZONE` component for `timezone` ("" if none)    |
 
-All naive timestamps in the file (`startTime`, `endTime`, and panel/timeline
-times) are wall-clock values in `timezone`. The widget uses `timezone` +
-`vtimezone` to emit correctly-anchored `.ics` (Add to Calendar) downloads.
+All times in the file (`startEpoch`/`endEpoch` on meta and panels, `startEpoch`
+on timeline) are Unix epoch seconds. Combine them with `timezone` to render the
+local wall-clock; the widget uses `timezone` + `vtimezone` to emit
+correctly-anchored `.ics` (Add to Calendar) downloads.
 
 ### Example
 
 ```json
 {
   "title": "Event Schedule 2026",
-  "version": 1,
+  "version": 2,
   "generator": "cosam-convert 0.1.0",
   "generated": "2026-03-26T22:00:00Z",
   "modified": "2026-03-26T21:45:00Z",
-  "startTime": "2026-05-29T17:00:00",
-  "endTime": "2026-06-01T15:00:00",
+  "startEpoch": 1748552400,
+  "endEpoch": 1748804100,
   "timezone": "America/New_York",
   "vtimezone": "BEGIN:VTIMEZONE\r\nTZID:America/New_York\r\n...END:VTIMEZONE"
 }
 ```
 
-> **Note:** `startTime` and `endTime` are local datetime strings without a timezone
-> suffix. `generated` and `modified` are UTC with a `Z` suffix.
+> **Note:** `startEpoch` and `endEpoch` are Unix epoch seconds (UTC instants);
+> render them in `timezone` for local display. `generated` and `modified` are ISO
+> 8601 UTC strings with a `Z` suffix.
 
 ## Panels
 
@@ -79,8 +88,8 @@ times) are wall-clock values in `timezone`. The widget uses `timezone` +
 | `name`         | string    | —                       | Display name (from base panel)                                                                                 |
 | `panelType`    | string    | no type assigned        | Panel type prefix (e.g. `"GP"`), references panelTypes hash key                                                |
 | `roomIds`      | integer[] | empty (unscheduled)     | Room UIDs for this session                                                                                     |
-| `startTime`    | string    | unscheduled             | ISO 8601 local datetime (no timezone suffix)                                                                   |
-| `endTime`      | string    | unscheduled             | ISO 8601 local datetime (no timezone suffix)                                                                   |
+| `startEpoch`   | integer   | unscheduled             | Start time as Unix epoch seconds (canonical)                                                                   |
+| `endEpoch`     | integer   | unscheduled             | End time as Unix epoch seconds (canonical)                                                                     |
 | `duration`     | integer   | —                       | Duration in minutes                                                                                            |
 | `description`  | string    | null/empty              | Effective description (base + part + session concatenated)                                                     |
 | `note`         | string    | null/empty              | Effective note                                                                                                 |
@@ -127,7 +136,7 @@ The `credits` field contains formatted display strings (e.g., "Carl Crafts", "AB
 
 ### Array Ordering
 
-Entries are ordered chronologically by `startTime`. Unscheduled sessions (null `startTime`) appear at the end.
+Entries are ordered chronologically by `startEpoch`. Unscheduled sessions (no `startEpoch`) appear at the end.
 
 ### Panels Example
 
@@ -139,8 +148,8 @@ Entries are ordered chronologically by `startTime`. Unscheduled sessions (null `
     "name": "Example Panel Title",
     "panelType": "GP",
     "roomIds": [10],
-    "startTime": "2026-06-26T14:00:00",
-    "endTime": "2026-06-26T15:00:00",
+    "startEpoch": 1782842400,
+    "endEpoch": 1782846000,
     "duration": 60,
     "description": "Example panel description.",
     "credits": ["Presenter Name", "Group Name (Alice, Bob)"],
@@ -152,8 +161,6 @@ Entries are ordered chronologically by `startTime`. Unscheduled sessions (null `
     "name": "Break",
     "panelType": "%IB",
     "roomIds": [1, 2, 3, 10],
-    "startTime": "2026-06-26T15:00:00",
-    "endTime": "2026-06-26T15:30:00",
     "duration": 30,
     "description": null,
     "credits": [],
@@ -309,13 +316,13 @@ by room membership.
 
 `timeline` is a JSON array of key time markers used for layout, navigation, and formatting.
 
-| Field       | Type           | Description                                                                                                     |
-| ----------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
-| `id`        | string         | Unique identifier for the time marker                                                                           |
-| `startTime` | string         | ISO 8601 local datetime (no timezone suffix, same as panels)                                                    |
-| `name`      | string         | Display label of the time marker (was `description` before format version 1; readers should accept the old key) |
-| `panelType` | string \| null | Panel type prefix, references panelTypes hash key                                                               |
-| `note`      | string \| null | Additional notes for the marker                                                                                 |
+| Field        | Type           | Description                                                                                                     |
+| ------------ | -------------- | --------------------------------------------------------------------------------------------------------------- |
+| `id`         | string         | Unique identifier for the time marker                                                                           |
+| `startEpoch` | integer        | Start time as Unix epoch seconds (canonical)                                                                    |
+| `name`       | string         | Display label of the time marker (was `description` before format version 1; readers should accept the old key) |
+| `panelType`  | string \| null | Panel type prefix, references panelTypes hash key                                                               |
+| `note`       | string \| null | Additional notes for the marker                                                                                 |
 
 ### Panel Type References
 
@@ -337,14 +344,13 @@ When converting from spreadsheet, this array is populated with panels whose pane
 [
   {
     "id": "SPLIT01",
-    "startTime": "2026-06-26T17:00:00",
+    "startEpoch": 1782853200,
     "name": "Thursday Evening",
     "panelType": "SPLIT",
     "note": "Example note"
   },
   {
     "id": "SPLIT02",
-    "startTime": "2026-06-27T08:00:00",
     "name": "Friday Morning",
     "panelType": "SPLIT",
     "note": null
@@ -426,12 +432,13 @@ The widget performs the following transformations on the raw JSON:
 {
   "meta": {
     "title": "Event Schedule 2026",
-    "version": 1,
+    "version": 2,
     "generator": "cosam-convert 0.1.0",
     "generated": "2026-03-26T22:00:00Z",
     "modified": "2026-03-26T21:45:00Z",
-    "startTime": "2026-05-29T17:00:00",
-    "endTime": "2026-06-01T15:00:00"
+    "startEpoch": 1748552400,
+    "endEpoch": 1748804100,
+    "timezone": "America/New_York"
   },
   "panels": [
     {
@@ -440,8 +447,8 @@ The widget performs the following transformations on the raw JSON:
       "name": "Example Panel Title",
       "panelType": "GP",
       "roomIds": [10],
-      "startTime": "2026-06-26T14:00:00",
-      "endTime": "2026-06-26T15:00:00",
+      "startEpoch": 1782842400,
+      "endEpoch": 1782846000,
       "duration": 60,
       "description": "Example panel description.",
       "credits": ["Presenter Name", "Group Name (Alice, Bob)"],
@@ -474,7 +481,7 @@ The widget performs the following transformations on the raw JSON:
   "timeline": [
     {
       "id": "SPLIT01",
-      "startTime": "2026-06-26T17:00:00",
+      "startEpoch": 1782853200,
       "name": "Thursday Evening",
       "panelType": "SPLIT",
       "note": "Example note"

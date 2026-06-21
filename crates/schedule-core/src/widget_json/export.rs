@@ -91,6 +91,11 @@ pub fn export_to_widget_json(
 ) -> Result<WidgetExport, WidgetJsonError> {
     let now = Utc::now();
 
+    // Timezone the schedule's naive wall-clock times are expressed in. Resolved
+    // up front (FEATURE-154) because every time field is now emitted as epoch
+    // seconds, which requires the zone to convert from wall-clock.
+    let timezone = schedule.metadata.timezone.clone().unwrap_or_default();
+
     let (rooms, room_uid_map) = build_room_uid_map(schedule);
     // All rooms in `rooms` are already non-pseudo; use them all for break synthesis.
     let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
@@ -102,8 +107,9 @@ pub fn export_to_widget_json(
         &visible_room_uids,
         &panel_types,
         private_export,
+        &timezone,
     )?;
-    let timeline = export_timeline(schedule, &panel_types, private_export)?;
+    let timeline = export_timeline(schedule, &panel_types, private_export, &timezone)?;
     let presenters = export_presenters(schedule, &panels, private_export)?;
 
     // Only include panel types actually referenced by panels or timeline entries.
@@ -117,18 +123,25 @@ pub fn export_to_widget_json(
         .filter(|(k, v)| used_prefixes.contains(k) && (private_export || !v.is_private))
         .collect();
 
-    let (start_dt, end_dt) = compute_schedule_bounds(&panels, &schedule.metadata, &now);
+    let (start_epoch, end_epoch) =
+        compute_schedule_bounds(&panels, &schedule.metadata, &now, &timezone);
 
-    // Timezone: name comes straight from metadata; the VTIMEZONE block is
-    // precomputed over the resolved window so the widget can emit anchored .ics.
-    let timezone = schedule.metadata.timezone.clone().unwrap_or_default();
+    // The VTIMEZONE block is precomputed over the resolved window so the widget
+    // can emit anchored .ics. It needs the wall-clock window, so the epoch bounds
+    // are converted back to local time here.
     let vtimezone = crate::value::timezone::parse_tz(&timezone)
-        .map(|tz| crate::value::timezone::build_vtimezone(tz, start_dt, end_dt))
+        .map(|tz| {
+            crate::value::timezone::build_vtimezone(
+                tz,
+                crate::value::timezone::epoch_to_local(start_epoch, &timezone),
+                crate::value::timezone::epoch_to_local(end_epoch, &timezone),
+            )
+        })
         .unwrap_or_default();
 
     let meta = WidgetMeta {
         title: title.to_string(),
-        version: 1,
+        version: 2,
         generator: format!("cosam-convert {}", env!("CARGO_PKG_VERSION")),
         generated: now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         modified: schedule
@@ -136,8 +149,8 @@ pub fn export_to_widget_json(
             .modified_at
             .unwrap_or(schedule.metadata.created_at)
             .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        start_time: format_naive_dt(start_dt),
-        end_time: format_naive_dt(end_dt),
+        start_epoch,
+        end_epoch,
         timezone,
         vtimezone,
     };
@@ -295,6 +308,7 @@ fn export_timeline(
     schedule: &Schedule,
     panel_types: &BTreeMap<String, WidgetPanelType>,
     private_export: bool,
+    tz_name: &str,
 ) -> Result<Vec<WidgetTimeline>, WidgetJsonError> {
     let mut timeline = Vec::new();
 
@@ -319,14 +333,14 @@ fn export_timeline(
 
         timeline.push(WidgetTimeline {
             id: internal.code.full_id(),
-            start_time: format_naive_dt(start),
+            start_epoch: Some(naive_to_epoch(start, tz_name)),
             name: internal.data.name.clone(),
             panel_type: prefix,
             note: internal.notes.get_owned(NoteKind::Public),
         });
     }
 
-    timeline.sort_by(|a, b| a.start_time.cmp(&b.start_time));
+    timeline.sort_by(|a, b| a.start_epoch.cmp(&b.start_epoch));
     Ok(timeline)
 }
 
@@ -338,6 +352,7 @@ fn export_panels(
     visible_room_uids: &[i32],
     panel_types: &BTreeMap<String, WidgetPanelType>,
     private_export: bool,
+    tz_name: &str,
 ) -> Result<Vec<WidgetPanel>, WidgetJsonError> {
     let mut panels = Vec::new();
 
@@ -372,8 +387,14 @@ fn export_panels(
         let presenter_names = individual_presenter_names(schedule, panel_id, private_export);
 
         let code = &internal.code;
-        let start_time = internal.time_slot.start_time().map(format_naive_dt);
-        let end_time = internal.time_slot.end_time().map(format_naive_dt);
+        let start_epoch = internal
+            .time_slot
+            .start_time()
+            .map(|dt| naive_to_epoch(dt, tz_name));
+        let end_epoch = internal
+            .time_slot
+            .end_time()
+            .map(|dt| naive_to_epoch(dt, tz_name));
         let duration = internal
             .time_slot
             .duration()
@@ -389,8 +410,8 @@ fn export_panels(
             name: internal.data.name.clone(),
             panel_type: prefix,
             room_ids,
-            start_time,
-            end_time,
+            start_epoch,
+            end_epoch,
             duration,
             description: internal.data.description.clone(),
             note: internal.notes.get_owned(NoteKind::Public),
@@ -431,8 +452,14 @@ fn export_panels(
         }
 
         let code = &internal.code;
-        let start_time = internal.time_slot.start_time().map(format_naive_dt);
-        let end_time = internal.time_slot.end_time().map(format_naive_dt);
+        let start_epoch = internal
+            .time_slot
+            .start_time()
+            .map(|dt| naive_to_epoch(dt, tz_name));
+        let end_epoch = internal
+            .time_slot
+            .end_time()
+            .map(|dt| naive_to_epoch(dt, tz_name));
         let duration = internal
             .time_slot
             .duration()
@@ -448,8 +475,8 @@ fn export_panels(
             name: internal.data.name.clone(),
             panel_type: prefix,
             room_ids: Vec::new(),
-            start_time,
-            end_time,
+            start_epoch,
+            end_epoch,
             duration,
             description: internal.data.description.clone(),
             note: internal.notes.get_owned(NoteKind::Public),
@@ -471,9 +498,9 @@ fn export_panels(
 
     // Sort: scheduled before unscheduled, then within scheduled:
     //   earliest start → longest duration → lowest room uid → id → name
-    panels.sort_by(|a, b| match (&a.start_time, &b.start_time) {
+    panels.sort_by(|a, b| match (a.start_epoch, b.start_epoch) {
         (Some(at), Some(bt)) => at
-            .cmp(bt)
+            .cmp(&bt)
             .then_with(|| b.duration.cmp(&a.duration))
             .then_with(|| first_room_uid(a).cmp(&first_room_uid(b)))
             .then_with(|| a.id.cmp(&b.id))
@@ -483,7 +510,7 @@ fn export_panels(
         (None, None) => a.id.cmp(&b.id),
     });
 
-    synthesize_breaks(panels, visible_room_uids)
+    synthesize_breaks(panels, visible_room_uids, tz_name)
 }
 
 fn first_room_uid(p: &WidgetPanel) -> i32 {
@@ -528,9 +555,9 @@ fn annotate_multipart_series(panels: &mut [WidgetPanel]) {
                 let pb = panels[b].part_num.unwrap_or(i32::MAX);
                 pa.cmp(&pb)
                     .then_with(|| {
-                        let ta = panels[a].start_time.as_deref().unwrap_or("\u{7f}");
-                        let tb = panels[b].start_time.as_deref().unwrap_or("\u{7f}");
-                        ta.cmp(tb)
+                        let ta = panels[a].start_epoch.unwrap_or(i64::MAX);
+                        let tb = panels[b].start_epoch.unwrap_or(i64::MAX);
+                        ta.cmp(&tb)
                     })
                     .then_with(|| panels[a].id.cmp(&panels[b].id))
             })
@@ -546,59 +573,73 @@ fn annotate_multipart_series(panels: &mut [WidgetPanel]) {
 fn synthesize_breaks(
     panels: Vec<WidgetPanel>,
     visible_room_uids: &[i32],
+    tz_name: &str,
 ) -> Result<Vec<WidgetPanel>, WidgetJsonError> {
     if visible_room_uids.is_empty() {
         return Ok(panels);
     }
 
+    // Overnight gaps are those that cross local midnight. Rather than resolving
+    // both gap ends to wall-clock per gap, track a single `overnight_boundary`:
+    // the epoch of the first local midnight strictly after the running end. A gap
+    // is overnight when the next panel starts at/after that boundary. The boundary
+    // is recomputed (one conversion) only when the running end advances.
+    let next_local_midnight = |epoch: i64| -> i64 {
+        let local = crate::value::timezone::epoch_to_local(epoch, tz_name);
+        let next_day = local
+            .date()
+            .succ_opt()
+            .unwrap_or(local.date())
+            .and_hms_opt(0, 0, 0)
+            .unwrap_or(local);
+        naive_to_epoch(next_day, tz_name)
+    };
+
     let mut result = Vec::with_capacity(panels.len() + 8);
-    let mut current_end: Option<NaiveDateTime> = None;
+    let mut current_end: Option<i64> = None;
+    let mut overnight_boundary: i64 = i64::MAX;
     let mut ib_counter: u32 = 0;
     let mut nb_counter: u32 = 0;
 
     for panel in panels {
-        if let Some(ref start_str) = panel.start_time.clone() {
-            if let Ok(start) = NaiveDateTime::parse_from_str(start_str, "%Y-%m-%dT%H:%M:%S") {
-                if let Some(prev_end) = current_end {
-                    if start > prev_end {
-                        let gap_minutes = (start - prev_end).num_minutes() as i32;
-                        let crosses_midnight = start.date() != prev_end.date();
-                        let is_overnight = crosses_midnight || gap_minutes > 240;
+        if let Some(start) = panel.start_epoch {
+            if let Some(prev_end) = current_end {
+                if start > prev_end {
+                    let gap_minutes = ((start - prev_end) / 60) as i32;
+                    let is_overnight = start >= overnight_boundary || gap_minutes > 240;
 
-                        if is_overnight {
-                            nb_counter += 1;
-                            result.push(make_break_panel(
-                                format!("%NB{:03}", nb_counter),
-                                "%NB",
-                                prev_end,
-                                start,
-                                gap_minutes,
-                                visible_room_uids,
-                            ));
-                        } else {
-                            ib_counter += 1;
-                            result.push(make_break_panel(
-                                format!("%IB{:03}", ib_counter),
-                                "%IB",
-                                prev_end,
-                                start,
-                                gap_minutes,
-                                visible_room_uids,
-                            ));
-                        }
+                    if is_overnight {
+                        nb_counter += 1;
+                        result.push(make_break_panel(
+                            format!("%NB{:03}", nb_counter),
+                            "%NB",
+                            prev_end,
+                            start,
+                            gap_minutes,
+                            visible_room_uids,
+                        ));
+                    } else {
+                        ib_counter += 1;
+                        result.push(make_break_panel(
+                            format!("%IB{:03}", ib_counter),
+                            "%IB",
+                            prev_end,
+                            start,
+                            gap_minutes,
+                            visible_room_uids,
+                        ));
                     }
                 }
+            }
 
-                // Advance current_end to max of prev and this panel's end
-                if let Some(ref end_str) = panel.end_time {
-                    if let Ok(end) = NaiveDateTime::parse_from_str(end_str, "%Y-%m-%dT%H:%M:%S") {
-                        current_end = Some(match current_end {
-                            Some(ce) if end > ce => end,
-                            Some(ce) => ce,
-                            None => end,
-                        });
-                    }
+            // Advance the running end (and its overnight boundary) to the latest
+            // end seen so far.
+            if let Some(end) = panel.end_epoch {
+                let new_end = current_end.map_or(end, |ce| ce.max(end));
+                if current_end != Some(new_end) {
+                    overnight_boundary = next_local_midnight(new_end);
                 }
+                current_end = Some(new_end);
             }
         }
         result.push(panel);
@@ -610,8 +651,8 @@ fn synthesize_breaks(
 fn make_break_panel(
     id: String,
     panel_type: &str,
-    start: NaiveDateTime,
-    end: NaiveDateTime,
+    start_epoch: i64,
+    end_epoch: i64,
     gap_minutes: i32,
     room_uids: &[i32],
 ) -> WidgetPanel {
@@ -625,8 +666,8 @@ fn make_break_panel(
         name: "Break".to_string(),
         panel_type: Some(panel_type.to_string()),
         room_ids: room_uids.to_vec(),
-        start_time: Some(format_naive_dt(start)),
-        end_time: Some(format_naive_dt(end)),
+        start_epoch: Some(start_epoch),
+        end_epoch: Some(end_epoch),
         duration: gap_minutes,
         description: None,
         note: None,
@@ -829,48 +870,52 @@ fn individual_presenter_names(
     names
 }
 
-/// Compute the schedule-wide event window as `NaiveDateTime` bounds.
+/// Compute the schedule-wide event window as Unix epoch-second bounds.
 ///
 /// The metadata `start_time`/`end_time` (if set) seed the window; real
 /// (non-break) scheduled panels then *extend* it earlier/later as needed. When
-/// neither metadata nor any panel supplies a bound, falls back to `now`.
+/// neither metadata nor any panel supplies a bound, falls back to `now`. Works
+/// entirely in epoch seconds (FEATURE-154); the only conversion is seeding from
+/// the metadata's naive wall-clock bounds.
 fn compute_schedule_bounds(
     panels: &[WidgetPanel],
     metadata: &crate::schedule::ScheduleMetadata,
     now: &DateTime<Utc>,
-) -> (NaiveDateTime, NaiveDateTime) {
-    let mut start: Option<NaiveDateTime> = metadata.start_time;
-    let mut end: Option<NaiveDateTime> = metadata.end_time;
+    tz_name: &str,
+) -> (i64, i64) {
+    let mut start: Option<i64> = metadata.start_time.map(|dt| naive_to_epoch(dt, tz_name));
+    let mut end: Option<i64> = metadata.end_time.map(|dt| naive_to_epoch(dt, tz_name));
 
     for panel in panels {
         if panel.id.starts_with('%') {
             continue;
         }
-        if let Some(st) = panel.start_time.as_deref().and_then(parse_storage_dt) {
-            start = Some(match start {
-                Some(s) if s <= st => s,
-                _ => st,
-            });
+        if let Some(st) = panel.start_epoch {
+            start = Some(start.map_or(st, |s| s.min(st)));
         }
-        if let Some(et) = panel.end_time.as_deref().and_then(parse_storage_dt) {
-            end = Some(match end {
-                Some(e) if e >= et => e,
-                _ => et,
-            });
+        if let Some(et) = panel.end_epoch {
+            end = Some(end.map_or(et, |e| e.max(et)));
         }
     }
 
-    let fallback = now.naive_utc();
+    let fallback = now.timestamp();
     (start.unwrap_or(fallback), end.unwrap_or(fallback))
 }
 
-/// Parse a naive datetime previously formatted by [`format_naive_dt`].
-fn parse_storage_dt(s: &str) -> Option<NaiveDateTime> {
-    NaiveDateTime::parse_from_str(s, crate::value::time::STORAGE_FMT).ok()
-}
-
-fn format_naive_dt(dt: NaiveDateTime) -> String {
-    dt.format("%Y-%m-%dT%H:%M:%S").to_string()
+/// Convert a naive wall-clock datetime, interpreted in `tz`, to Unix epoch
+/// seconds. With no timezone the value is treated as UTC. Ambiguous local times
+/// (DST fall-back) resolve to the earliest instant; nonexistent local times (DST
+/// spring-forward gap) fall back to a naive-UTC interpretation.
+fn naive_to_epoch(dt: NaiveDateTime, tz_name: &str) -> i64 {
+    use chrono::offset::LocalResult;
+    use chrono::TimeZone;
+    match crate::value::timezone::parse_tz(tz_name) {
+        Some(tz) => match tz.from_local_datetime(&dt) {
+            LocalResult::Single(t) | LocalResult::Ambiguous(t, _) => t.timestamp(),
+            LocalResult::None => dt.and_utc().timestamp(),
+        },
+        None => dt.and_utc().timestamp(),
+    }
 }
 
 #[cfg(test)]
@@ -1073,7 +1118,7 @@ mod tests {
         let panel_types = export_panel_types(&sched).unwrap();
 
         // Public export: only the credited presenter is on the panel.
-        let public = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let public = export_panels(&sched, &uid_map, &[], &panel_types, false, "").unwrap();
         let pub_panel = public.iter().find(|p| p.id == "GP001").unwrap();
         assert!(pub_panel.presenters.contains(&"Listed Guest".to_string()));
         assert!(!pub_panel.presenters.contains(&"Unlisted Guest".to_string()));
@@ -1081,7 +1126,7 @@ mod tests {
         // Private export: the unlisted presenter is surfaced on the panel's
         // `presenters` (split/search) field so print layout can attribute the
         // panel to them in per-presenter sections...
-        let private = export_panels(&sched, &uid_map, &[], &panel_types, true).unwrap();
+        let private = export_panels(&sched, &uid_map, &[], &panel_types, true, "").unwrap();
         let priv_panel = private.iter().find(|p| p.id == "GP001").unwrap();
         assert!(priv_panel.presenters.contains(&"Listed Guest".to_string()));
         assert!(priv_panel
@@ -1100,7 +1145,7 @@ mod tests {
         let result = export_to_widget_json(&schedule, "Test Schedule", false);
         assert!(result.is_ok());
         let export = result.unwrap();
-        assert_eq!(export.meta.version, 1);
+        assert_eq!(export.meta.version, 2);
         // Empty schedule has no panels so no panel types should be emitted
         assert!(export.panel_types.is_empty());
     }
@@ -1154,7 +1199,7 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false, "").unwrap();
 
         let real: Vec<_> = panels.iter().filter(|p| !p.id.starts_with('%')).collect();
         assert_eq!(real.len(), 1);
@@ -1164,8 +1209,53 @@ mod tests {
         assert_eq!(p.panel_type.as_deref(), Some("GP"));
         assert_eq!(p.room_ids, vec![1]);
         assert_eq!(p.duration, 60);
-        assert_eq!(p.start_time.as_deref(), Some("2026-06-01T14:00:00"));
-        assert_eq!(p.end_time.as_deref(), Some("2026-06-01T15:00:00"));
+        // tz_name "" → wall-clock interpreted as UTC.
+        let expect = |s: &str| {
+            NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+                .unwrap()
+                .and_utc()
+                .timestamp()
+        };
+        assert_eq!(p.start_epoch, Some(expect("2026-06-01T14:00:00")));
+        assert_eq!(p.end_epoch, Some(expect("2026-06-01T15:00:00")));
+    }
+
+    #[test]
+    fn test_epoch_uses_metadata_timezone() {
+        use chrono::TimeZone;
+        let mut sched = Schedule::new();
+        sched.metadata.timezone = Some("America/New_York".to_string());
+        let pt_id = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        // 2026-06-01 is EDT (UTC-4).
+        let panel_id = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60));
+        link_panel_type(&mut sched, panel_id, pt_id);
+
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        let p = export.panels.iter().find(|p| p.id == "GP001").unwrap();
+        let want = chrono_tz::Tz::America__New_York
+            .with_ymd_and_hms(2026, 6, 1, 14, 0, 0)
+            .unwrap()
+            .timestamp();
+        assert_eq!(p.start_epoch, Some(want));
+        assert_eq!(export.meta.start_epoch, want);
+        assert_eq!(export.meta.version, 2);
+    }
+
+    #[test]
+    fn test_epoch_without_timezone_is_utc() {
+        // No metadata timezone → naive wall-clock is interpreted as UTC.
+        let mut sched = Schedule::new();
+        let pt_id = make_panel_type(&mut sched, "GP", "Guest Panel", false);
+        let panel_id = make_panel(&mut sched, "GP001", Some((0, 14, 0, 0)), Some(60));
+        link_panel_type(&mut sched, panel_id, pt_id);
+
+        let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        let p = export.panels.iter().find(|p| p.id == "GP001").unwrap();
+        let want = NaiveDateTime::parse_from_str("2026-06-01T14:00:00", "%Y-%m-%dT%H:%M:%S")
+            .unwrap()
+            .and_utc()
+            .timestamp();
+        assert_eq!(p.start_epoch, Some(want));
     }
 
     #[test]
@@ -1179,13 +1269,13 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false, "").unwrap();
 
         let real: Vec<_> = panels.iter().filter(|p| !p.id.starts_with('%')).collect();
         assert_eq!(real.len(), 2);
         // Scheduled panel must come before unscheduled
-        assert!(real[0].start_time.is_some());
-        assert!(real[1].start_time.is_none());
+        assert!(real[0].start_epoch.is_some());
+        assert!(real[1].start_epoch.is_none());
     }
 
     #[test]
@@ -1205,7 +1295,7 @@ mod tests {
         let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
         let panel_types = export_panel_types(&sched).unwrap();
         let panels =
-            export_panels(&sched, &uid_map, &visible_room_uids, &panel_types, false).unwrap();
+            export_panels(&sched, &uid_map, &visible_room_uids, &panel_types, false, "").unwrap();
 
         let ids: Vec<&str> = panels.iter().map(|p| p.id.as_str()).collect();
         assert!(ids.contains(&"%IB001"), "expected %IB001 in {ids:?}");
@@ -1231,7 +1321,7 @@ mod tests {
         let visible_room_uids: Vec<i32> = rooms.iter().map(|r| r.uid).collect();
         let panel_types = export_panel_types(&sched).unwrap();
         let panels =
-            export_panels(&sched, &uid_map, &visible_room_uids, &panel_types, false).unwrap();
+            export_panels(&sched, &uid_map, &visible_room_uids, &panel_types, false, "").unwrap();
 
         let ids: Vec<&str> = panels.iter().map(|p| p.id.as_str()).collect();
         assert!(ids.contains(&"%NB001"), "expected %NB001 in {ids:?}");
@@ -1249,8 +1339,8 @@ mod tests {
 
         let panel_types = export_panel_types(&sched).unwrap();
         let (_, uid_map) = build_room_uid_map(&sched);
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
-        let timeline = export_timeline(&sched, &panel_types, false).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false, "").unwrap();
+        let timeline = export_timeline(&sched, &panel_types, false, "").unwrap();
 
         let real: Vec<_> = panels.iter().filter(|p| !p.id.starts_with('%')).collect();
         assert_eq!(real.len(), 1);
@@ -1270,7 +1360,7 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false, "").unwrap();
         let presenters = export_presenters(&sched, &panels, false).unwrap();
 
         let jane = presenters.iter().find(|p| p.name == "Jane Doe").unwrap();
@@ -1307,7 +1397,7 @@ mod tests {
 
         let (_, uid_map) = build_room_uid_map(&sched);
         let panel_types = export_panel_types(&sched).unwrap();
-        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false).unwrap();
+        let panels = export_panels(&sched, &uid_map, &[], &panel_types, false, "").unwrap();
         let presenters = export_presenters(&sched, &panels, false).unwrap();
 
         let group = presenters.iter().find(|p| p.name == "Team Alpha").unwrap();
@@ -1354,15 +1444,16 @@ mod tests {
         link_panel_type(&mut sched, p2, pt_id);
 
         let export = export_to_widget_json(&sched, "Test", false).unwrap();
+        // No metadata timezone → epoch reflects the wall-clock as UTC.
+        let start_iso = crate::value::timezone::epoch_to_local_iso(export.meta.start_epoch, "");
+        let end_iso = crate::value::timezone::epoch_to_local_iso(export.meta.end_epoch, "");
         assert!(
-            export.meta.start_time.contains("09:00:00"),
-            "start_time should contain 09:00:00, got {}",
-            export.meta.start_time
+            start_iso.contains("09:00:00"),
+            "start should contain 09:00:00, got {start_iso}"
         );
         assert!(
-            export.meta.end_time.contains("15:30:00"),
-            "end_time should contain 15:30:00, got {}",
-            export.meta.end_time
+            end_iso.contains("15:30:00"),
+            "end should contain 15:30:00, got {end_iso}"
         );
     }
 
@@ -1384,12 +1475,12 @@ mod tests {
         assert_eq!(export.rooms.len(), loaded.rooms.len());
     }
 
-    fn part_panel(id: &str, base: &str, part: i32, start: &str) -> WidgetPanel {
+    fn part_panel(id: &str, base: &str, part: i32, start_epoch: i64) -> WidgetPanel {
         WidgetPanel {
             id: id.to_string(),
             base_id: base.to_string(),
             part_num: Some(part),
-            start_time: Some(start.to_string()),
+            start_epoch: Some(start_epoch),
             ..Default::default()
         }
     }
@@ -1399,9 +1490,9 @@ mod tests {
         // GP001 has two parts; part 1 also has a rerun. The lead is the lowest
         // part number, earliest start — here the 2pm Part 1.
         let mut panels = vec![
-            part_panel("GP001P2", "GP001", 2, "2026-06-01T16:00:00"),
-            part_panel("GP001P1S2", "GP001", 1, "2026-06-01T18:00:00"),
-            part_panel("GP001P1", "GP001", 1, "2026-06-01T14:00:00"),
+            part_panel("GP001P2", "GP001", 2, 1600),
+            part_panel("GP001P1S2", "GP001", 1, 1800),
+            part_panel("GP001P1", "GP001", 1, 1400),
         ];
         annotate_multipart_series(&mut panels);
 
@@ -1421,8 +1512,8 @@ mod tests {
         // A single part repeated (reruns) is not a multi-part series — cost is
         // per session, so nothing is annotated.
         let mut panels = vec![
-            part_panel("GP002P1", "GP002", 1, "2026-06-01T14:00:00"),
-            part_panel("GP002P1S2", "GP002", 1, "2026-06-01T16:00:00"),
+            part_panel("GP002P1", "GP002", 1, 1400),
+            part_panel("GP002P1S2", "GP002", 1, 1600),
         ];
         annotate_multipart_series(&mut panels);
         assert!(panels.iter().all(|p| p.total_parts.is_none()));
