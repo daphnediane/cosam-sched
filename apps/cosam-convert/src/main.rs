@@ -772,7 +772,8 @@ fn print_usage() {
          \x20 --embed-as-html                      Embed schedule as widget-html semantic HTML (default)\n\
          \x20 --style-page                         Set stylePageBody: true in widget init\n\
          \x20 --no-style-page                      Set stylePageBody: false in widget init\n\
-         \x20 --print-plugin <name|file>          Print plugin: 'advanced' for built-in, or path to custom JS\n\
+         \x20 --print-plugin <name|file>          Print plugin: direct path, config/plugins/print-format-<name>.min.js, widget/print-format-<name>.min.js,\n\
+         \x20                                      'advanced' for built-in, 'default'/'none'/'builtin' for simple print\n\
          \x20                                      Default: built-in simple print (no plugin)\n\
          \x20 --public                             Exclude private panels, timeline, and uncredited presenters in export\n\
          \x20 --private                            Include private panels, timeline, and uncredited presenters in export\n\

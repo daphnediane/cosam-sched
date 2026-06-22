@@ -27,6 +27,137 @@ use schedule_core::widget_json::{ScheduleConfig, WidgetExport};
 
 use crate::static_html;
 
+/// Resolves a print plugin argument to a file path or None.
+///
+/// Resolution order:
+/// 1. Direct file path
+/// 2. config/plugins/print-format-<arg>.min.js or config/plugins/print-format-<arg>.js
+/// 3. widget/print-format-<arg>.min.js or widget/print-format-<arg>.js
+/// 4. Builtin "advanced" -> returns None (handled separately)
+/// 5. Special keywords: "default", "none", "builtin" -> returns None
+fn resolve_print_plugin(arg: &str) -> Result<Option<String>> {
+    // 1. Check as direct file path first
+    let direct_path = Path::new(arg);
+    if direct_path.exists() {
+        return Ok(Some(arg.to_string()));
+    }
+
+    // 2. Check config/plugins/ directory
+    let config_plugins_dir = Path::new("config/plugins");
+    let config_min_js_path = config_plugins_dir.join(format!("print-format-{}.min.js", arg));
+    let config_js_path = config_plugins_dir.join(format!("print-format-{}.js", arg));
+
+    if config_min_js_path.exists() {
+        return Ok(Some(config_min_js_path.to_string_lossy().to_string()));
+    }
+
+    if config_js_path.exists() {
+        return Ok(Some(config_js_path.to_string_lossy().to_string()));
+    }
+
+    // 3. Check widget/ directory
+    let widget_dir = Path::new("widget");
+    let widget_min_js_path = widget_dir.join(format!("print-format-{}.min.js", arg));
+    let widget_js_path = widget_dir.join(format!("print-format-{}.js", arg));
+
+    if widget_min_js_path.exists() {
+        return Ok(Some(widget_min_js_path.to_string_lossy().to_string()));
+    }
+
+    if widget_js_path.exists() {
+        return Ok(Some(widget_js_path.to_string_lossy().to_string()));
+    }
+
+    // 4. Special keyword for builtin advanced plugin (handled separately)
+    if arg == "advanced" {
+        return Ok(None);
+    }
+
+    // 5. Special keywords that mean no plugin
+    if matches!(arg, "default" | "none" | "builtin") {
+        return Ok(None);
+    }
+
+    anyhow::bail!(
+        "Print plugin '{}' not found. Checked direct path, config/plugins/print-format-{{}}.min.js, config/plugins/print-format-{{}}.js, widget/print-format-{{}}.min.js, widget/print-format-{{}}.js",
+        arg
+    );
+}
+
+/// Loads a print plugin and returns the JS, CSS, and init line.
+///
+/// The init_line parameter should be the indentation-appropriate printPlugin init line.
+fn load_print_plugin(
+    print_plugin: Option<&str>,
+    init_line: &str,
+) -> Result<(String, String, String)> {
+    match print_plugin {
+        Some(arg) => {
+            match resolve_print_plugin(arg)? {
+                Some(file_path) => {
+                    let plugin_content =
+                        std::fs::read_to_string(&file_path).with_context(|| {
+                            format!("Failed to read print plugin file: {}", file_path)
+                        })?;
+                    // Derive CSS path by replacing .js or .min.js with .css
+                    let css_path = file_path.replace(".min.js", ".css").replace(".js", ".css");
+                    let plugin_css = if std::path::Path::new(&css_path).exists() {
+                        let css_content =
+                            std::fs::read_to_string(&css_path).with_context(|| {
+                                format!("Failed to read print plugin CSS: {}", css_path)
+                            })?;
+                        format!(
+                            r#"
+<style>
+{css}
+</style>"#,
+                            css = css_content
+                        )
+                    } else {
+                        String::new()
+                    };
+                    Ok((
+                        format!(
+                            r#"
+// Print format plugin (custom: {})
+{plugin}"#,
+                            file_path,
+                            plugin = plugin_content
+                        ),
+                        plugin_css,
+                        init_line.to_string(),
+                    ))
+                }
+                None => {
+                    // resolve_print_plugin returned None - check if it was "advanced"
+                    if arg == "advanced" {
+                        Ok((
+                            format!(
+                                r#"
+// Print format plugin (advanced)
+{plugin}"#,
+                                plugin = BUILTIN_PRINT_FORMAT_ADVANCED
+                            ),
+                            format!(
+                                r#"
+<style>
+{css}
+</style>"#,
+                                css = BUILTIN_PRINT_FORMAT_ADVANCED_CSS
+                            ),
+                            init_line.to_string(),
+                        ))
+                    } else {
+                        // "default", "none", "builtin" - no plugin
+                        Ok((String::new(), String::new(), String::new()))
+                    }
+                }
+            }
+        }
+        None => Ok((String::new(), String::new(), String::new())),
+    }
+}
+
 // Pre-minified by esbuild (via `npm run build` / build.rs).
 // Using the esbuild output avoids minify-html's JS minifier, which
 // double-escapes \uXXXX sequences in string literals.
@@ -242,55 +373,10 @@ pub fn generate_embed_html(
         Some(false) => "\n            showEvenGridSwitch: false,",
         None => "",
     };
-    let (print_plugin_js, print_plugin_css, print_plugin_line) = match print_plugin {
-        Some("advanced") => (
-            format!(
-                r#"
-// Print format plugin (advanced)
-{plugin}"#,
-                plugin = BUILTIN_PRINT_FORMAT_ADVANCED
-            ),
-            format!(
-                r#"
-<style>
-{css}
-</style>"#,
-                css = BUILTIN_PRINT_FORMAT_ADVANCED_CSS
-            ),
-            "\n            printPlugin: new window.PrintFormatPlugin(),",
-        ),
-        Some(file_path) => {
-            let plugin_content = std::fs::read_to_string(file_path)
-                .with_context(|| format!("Failed to read print plugin file: {}", file_path))?;
-            // Derive CSS path by replacing .js or .min.js with .css
-            let css_path = file_path.replace(".min.js", ".css").replace(".js", ".css");
-            let plugin_css = if std::path::Path::new(&css_path).exists() {
-                let css_content = std::fs::read_to_string(&css_path)
-                    .with_context(|| format!("Failed to read print plugin CSS: {}", css_path))?;
-                format!(
-                    r#"
-<style>
-{css}
-</style>"#,
-                    css = css_content
-                )
-            } else {
-                String::new()
-            };
-            (
-                format!(
-                    r#"
-// Print format plugin (custom: {})
-{plugin}"#,
-                    file_path,
-                    plugin = plugin_content
-                ),
-                plugin_css,
-                "\n            printPlugin: new window.PrintFormatPlugin(),",
-            )
-        }
-        None => (String::new(), String::new(), ""),
-    };
+    let (print_plugin_js, print_plugin_css, print_plugin_line) = load_print_plugin(
+        print_plugin,
+        "\n            printPlugin: new window.PrintFormatPlugin(),",
+    )?;
     let encoded_data = compress_and_encode(json_data)?;
     // Optional presentation config (branding + print-format defaults), emitted as
     // its own ScheduleConfig <script> the default EmbeddedConfigLoader reads.
@@ -406,55 +492,10 @@ pub fn generate_embed_html_widget_html(
         Some(false) => "\n    showEvenGridSwitch: false,",
         None => "",
     };
-    let (print_plugin_js, print_plugin_css, print_plugin_line) = match print_plugin {
-        Some("advanced") => (
-            format!(
-                r#"
-// Print format plugin (advanced)
-{plugin}"#,
-                plugin = BUILTIN_PRINT_FORMAT_ADVANCED
-            ),
-            format!(
-                r#"
-<style>
-{css}
-</style>"#,
-                css = BUILTIN_PRINT_FORMAT_ADVANCED_CSS
-            ),
-            "\n    printPlugin: new window.PrintFormatPlugin(),",
-        ),
-        Some(file_path) => {
-            let plugin_content = std::fs::read_to_string(file_path)
-                .with_context(|| format!("Failed to read print plugin file: {}", file_path))?;
-            // Derive CSS path by replacing .js or .min.js with .css
-            let css_path = file_path.replace(".min.js", ".css").replace(".js", ".css");
-            let plugin_css = if std::path::Path::new(&css_path).exists() {
-                let css_content = std::fs::read_to_string(&css_path)
-                    .with_context(|| format!("Failed to read print plugin CSS: {}", css_path))?;
-                format!(
-                    r#"
-<style>
-{css}
-</style>"#,
-                    css = css_content
-                )
-            } else {
-                String::new()
-            };
-            (
-                format!(
-                    r#"
-// Print format plugin (custom: {})
-{plugin}"#,
-                    file_path,
-                    plugin = plugin_content
-                ),
-                plugin_css,
-                "\n    printPlugin: new window.PrintFormatPlugin(),",
-            )
-        }
-        None => (String::new(), String::new(), ""),
-    };
+    let (print_plugin_js, print_plugin_css, print_plugin_line) = load_print_plugin(
+        print_plugin,
+        "\n    printPlugin: new window.PrintFormatPlugin(),",
+    )?;
     let schedule_html = static_html::generate_static_schedule_html(export)?;
     // Optional presentation config (branding + print-format defaults), emitted as
     // its own ScheduleConfig <script> so the embedded widget can match the
@@ -650,55 +691,10 @@ pub fn generate_embed_head_widget_html(
         Some(false) => "\n            showEvenGridSwitch: false,",
         None => "",
     };
-    let (print_plugin_js, print_plugin_css, print_plugin_line) = match print_plugin {
-        Some("advanced") => (
-            format!(
-                r#"
-// Print format plugin (advanced)
-{plugin}"#,
-                plugin = BUILTIN_PRINT_FORMAT_ADVANCED
-            ),
-            format!(
-                r#"
-<style>
-{css}
-</style>"#,
-                css = BUILTIN_PRINT_FORMAT_ADVANCED_CSS
-            ),
-            "\n            printPlugin: new window.PrintFormatPlugin(),",
-        ),
-        Some(file_path) => {
-            let plugin_content = std::fs::read_to_string(file_path)
-                .with_context(|| format!("Failed to read print plugin file: {}", file_path))?;
-            // Derive CSS path by replacing .js or .min.js with .css
-            let css_path = file_path.replace(".min.js", ".css").replace(".js", ".css");
-            let plugin_css = if std::path::Path::new(&css_path).exists() {
-                let css_content = std::fs::read_to_string(&css_path)
-                    .with_context(|| format!("Failed to read print plugin CSS: {}", css_path))?;
-                format!(
-                    r#"
-<style>
-{css}
-</style>"#,
-                    css = css_content
-                )
-            } else {
-                String::new()
-            };
-            (
-                format!(
-                    r#"
-// Print format plugin (custom: {})
-{plugin}"#,
-                    file_path,
-                    plugin = plugin_content
-                ),
-                plugin_css,
-                "\n            printPlugin: new window.PrintFormatPlugin(),",
-            )
-        }
-        None => (String::new(), String::new(), ""),
-    };
+    let (print_plugin_js, print_plugin_css, print_plugin_line) = load_print_plugin(
+        print_plugin,
+        "\n            printPlugin: new window.PrintFormatPlugin(),",
+    )?;
     let config_html = if let Some(cfg) = config {
         static_html::generate_config_html(cfg)?
     } else {
@@ -787,55 +783,10 @@ pub fn generate_embed_head_json(
         Some(false) => "\n            showEvenGridSwitch: false,",
         None => "",
     };
-    let (print_plugin_js, print_plugin_css, print_plugin_line) = match print_plugin {
-        Some("advanced") => (
-            format!(
-                r#"
-// Print format plugin (advanced)
-{plugin}"#,
-                plugin = BUILTIN_PRINT_FORMAT_ADVANCED
-            ),
-            format!(
-                r#"
-<style>
-{css}
-</style>"#,
-                css = BUILTIN_PRINT_FORMAT_ADVANCED_CSS
-            ),
-            "\n            printPlugin: new window.PrintFormatPlugin(),",
-        ),
-        Some(file_path) => {
-            let plugin_content = std::fs::read_to_string(file_path)
-                .with_context(|| format!("Failed to read print plugin file: {}", file_path))?;
-            // Derive CSS path by replacing .js or .min.js with .css
-            let css_path = file_path.replace(".min.js", ".css").replace(".js", ".css");
-            let plugin_css = if std::path::Path::new(&css_path).exists() {
-                let css_content = std::fs::read_to_string(&css_path)
-                    .with_context(|| format!("Failed to read print plugin CSS: {}", css_path))?;
-                format!(
-                    r#"
-<style>
-{css}
-</style>"#,
-                    css = css_content
-                )
-            } else {
-                String::new()
-            };
-            (
-                format!(
-                    r#"
-// Print format plugin (custom: {})
-{plugin}"#,
-                    file_path,
-                    plugin = plugin_content
-                ),
-                plugin_css,
-                "\n            printPlugin: new window.PrintFormatPlugin(),",
-            )
-        }
-        None => (String::new(), String::new(), ""),
-    };
+    let (print_plugin_js, print_plugin_css, print_plugin_line) = load_print_plugin(
+        print_plugin,
+        "\n            printPlugin: new window.PrintFormatPlugin(),",
+    )?;
     // Presentation config (branding + print-format defaults) ships in the head
     // engine so the resident widget has it before page content arrives.
     let config_html = match config {
