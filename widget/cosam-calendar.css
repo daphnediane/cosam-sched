@@ -3597,15 +3597,13 @@ body.cosam-page-styled a:hover {
 }
 
 /* ── Show stars in printed grid ── */
-/* Selected ("My Schedule") panels get a light-blue brand tint rather than a
-   drop shadow — mirrors schedule-layout's highlight (brand color lightened
-   ~90%; here the print teal #2a9ec7/#40c8ed → ~#e6f8fc). The tint is very light
+/* Selected ("My Schedule") panels get a lighter version of their panel type
+   accent color as background (set via inline style in JS). The tint is very light
    so it adds little ink and only covers the user's picks, and it reads cleaner
    in print than a shadow (which can look like an artifact). The gold left
    border (from .starred) still marks them. z-index keeps the panel above the
    grid row/col lines (z-index 2) and neighboring events (z-index 20). */
 .cosam-print.cosam-show-stars .cosam-grid-event.starred {
-  background: #e6f8fc;
   position: relative;
   z-index: 21;
 }

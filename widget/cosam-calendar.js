@@ -300,6 +300,57 @@ import QRCode from 'qrcode';
     return div.innerHTML;
   }
 
+  // Convert hex to HSL and set lightness to a fixed pastel value (default 92%).
+  // Returns a hex string.
+  function _lightenColor(hex, targetLightness = 0.92) {
+    if (!hex || typeof hex !== 'string') return hex;
+    // Remove # if present
+    hex = hex.replace('#', '');
+    if (hex.length !== 6) return hex;
+
+    const r = parseInt(hex.substring(0, 2), 16) / 255;
+    const g = parseInt(hex.substring(2, 4), 16) / 255;
+    const b = parseInt(hex.substring(4, 6), 16) / 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h, s, l = (max + min) / 2;
+
+    if (max === min) {
+      h = s = 0; // achromatic
+    } else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+        case g: h = ((b - r) / d + 2) / 6; break;
+        case b: h = ((r - g) / d + 4) / 6; break;
+      }
+    }
+
+    // Set lightness to target pastel value
+    l = targetLightness;
+
+    // Convert HSL back to RGB
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const newR = hue2rgb(p, q, h + 1 / 3);
+    const newG = hue2rgb(p, q, h);
+    const newB = hue2rgb(p, q, h - 1 / 3);
+
+    const toHex = (x) => Math.round(x * 255).toString(16).padStart(2, '0');
+    return '#' + toHex(newR) + toHex(newG) + toHex(newB);
+  }
+
   // Normalized, non-empty capacity string for an event, or '' when absent.
   function capacityText(evt) {
     if (evt.capacity === undefined || evt.capacity === null) return '';
@@ -3725,6 +3776,10 @@ import QRCode from 'qrcode';
             for (const [slug, color] of this._panelTypeColors) {
               if (event.classList.contains(prefix + 'panel-type-' + slug)) {
                 event.style.borderLeftColor = color;
+                // For starred events, also set a lighter background version of the accent color
+                if (event.classList.contains('starred')) {
+                  event.style.backgroundColor = _lightenColor(color);
+                }
                 break;
               }
             }
