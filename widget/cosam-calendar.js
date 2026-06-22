@@ -3822,6 +3822,7 @@ ${allCSS}
           heading: 'Printing',
           items: [
             { icon: ICONS.print, text: '<strong>Print</strong> — Click the print icon to print the schedule. Current filters apply — star your events and filter to My Schedule first to print a personal copy.' },
+            { icon: ICONS.chevronDown, text: '<strong>Print options</strong> — Use the ▾ dropdown next to the print icon to choose layout (Default/Smart, Grid, or List) and color (Color or Black & White).' },
           ],
         },
       ];
