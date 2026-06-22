@@ -1774,7 +1774,7 @@
 }
 
 /* Remove individual cell backgrounds - grid lines handle separation */
-.cosam-grid>div:not(.cosam-grid-header-cell):not(.cosam-grid-time-header):not(.cosam-grid-event):not(.cosam-grid-break):not(.cosam-sleep-break):not(.cosam-grid-row-line):not(.cosam-grid-col-line) {
+.cosam-grid>div:not(.cosam-grid-header-cell):not(.cosam-grid-time-header):not(.cosam-grid-event):not(.cosam-grid-break):not(.cosam-sleep-break):not(.cosam-grid-row-line):not(.cosam-grid-col-line):not(.cosam-grid-footer) {
   background: transparent;
   border: none;
   margin: 0;
@@ -3689,12 +3689,16 @@ body.cosam-page-styled a:hover {
   border-left-color: #333;
 }
 
-/* Selected ("My Schedule") highlight → light grey instead of light blue. */
-.cosam-print.cosam-bw .cosam-show-stars .cosam-grid-event.starred {
+/* Selected ("My Schedule") highlight → light grey instead of light blue, and a
+   black star instead of gold. .cosam-show-stars is on the same container as
+   .cosam-bw (compound, not descendant), and these must out-specify the colour
+   show-stars rules they override. */
+.cosam-print.cosam-bw.cosam-show-stars .cosam-grid-event.starred {
   background: #ececec;
 }
 
-.cosam-print.cosam-bw .cosam-grid-event-star {
+.cosam-print.cosam-bw .cosam-grid-event-star,
+.cosam-print.cosam-bw.cosam-show-stars .cosam-grid-event.starred .cosam-grid-event-star {
   color: #000;
 }
 
