@@ -377,7 +377,7 @@ fn export_timeline(
         });
     }
 
-    timeline.sort_by(|a, b| a.start_epoch.cmp(&b.start_epoch));
+    timeline.sort_by_key(|t| t.start_epoch);
     Ok(timeline)
 }
 

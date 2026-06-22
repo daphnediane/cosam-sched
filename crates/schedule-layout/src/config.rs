@@ -221,6 +221,12 @@ pub enum FooterMode {
     Full,
     /// Modified/generated timestamps only — no page number or site label.
     TimestampOnly,
+    /// Per-section pagination: the timestamps and site keep their slots, but the
+    /// centered global "Page X of N" is replaced with a per-section counter
+    /// labelled by the running section — e.g. `"Avera: Page 1 of 4"`. Requires an
+    /// active split (section markers); falls back to the global counter on pages
+    /// with no marker.
+    SectionPages,
     /// No footer at all.
     None,
 }
@@ -351,6 +357,13 @@ pub struct LayoutConfig {
     pub columns: Option<u32>,
     /// Page-footer content.
     pub footer: FooterMode,
+    /// For per-presenter day grids, whether to show *only* the days a presenter
+    /// is scheduled. `None`/`Some(true)` (the default) skips days the presenter
+    /// has no panels. `Some(false)` instead still emits those days — the full day
+    /// grid (every panel that day) with nothing highlighted — so every guest's
+    /// booklet shows the same set of days. Honored for the presenter × time split
+    /// (the guest-schedule case).
+    pub matching_only: Option<bool>,
     /// Insert a blank page so each section starts on an odd page (double-sided
     /// booklet printing).
     pub double_sided: bool,

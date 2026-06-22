@@ -19,8 +19,13 @@
 #                               # presenters in per-presenter splits (bylines stay
 #                               # credited-only). Default false (public view).
 #   color_mode     = "color"    # "color" (default) or "bw"
-#   footer         = "full"     # "full" (default), "timestamp_only", "none"
+#   footer         = "full"     # "full" (default), "timestamp_only",
+#                               # "section_pages" (per-section "Label: Page X of Y";
+#                               #   needs an active split), "none"
 #   double_sided   = false      # pad each section onto an odd page
+#   matching_only  = true       # presenter×day grids: show only a guest's
+#                               #   scheduled days (default). false = also show
+#                               #   their off days (full day grid, none highlighted).
 #   header_text    = "..."      # left label (section split) / right label (no split)
 #   columns        = 4          # override the content/paper default column count
 #   base_font_pt   = "12pt"     # override base font size (descriptions, etc.)

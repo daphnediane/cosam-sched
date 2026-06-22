@@ -143,6 +143,9 @@ pub fn generate(
         FooterMode::TimestampOnly => {
             doc.push_str(&banner::page_footer_timestamps_only(&timestamps))
         }
+        FooterMode::SectionPages => {
+            doc.push_str(&banner::page_footer_section_pages(&timestamps, site))
+        }
         FooterMode::None => {}
     }
 
@@ -437,19 +440,56 @@ fn is_workshop(data: &ScheduleData, panel: &Panel) -> bool {
         .is_some_and(|pt| pt.is_workshop)
 }
 
-/// A labelled slice of panels with an optional visible time window and font overrides.
-///
-/// `(label, panels, window_start, window_end, base_font_override, grid_font_override)`
-/// where the window fields are Unix epoch seconds used to clamp the grid to the section
-/// boundary, and the font override fields are optional per-section font size overrides.
-type TimedSection<'a> = (
-    String,
-    Vec<&'a Panel>,
-    Option<i64>,
-    Option<i64>,
-    Option<String>,
-    Option<String>,
-);
+/// The identity and framing of a section, without its panels: a label, an
+/// optional visible time window (epoch-second bounds used to clamp the grid to
+/// the section boundary), and optional per-section font-size overrides. Time
+/// splits build these first, then pair each with its bucket of panels via
+/// [`SectionKey::with_panels`].
+struct SectionKey {
+    label: String,
+    window_start: Option<i64>,
+    window_end: Option<i64>,
+    base_font: Option<String>,
+    grid_font: Option<String>,
+}
+
+impl SectionKey {
+    /// A section with no time-window clamp and no per-section font overrides.
+    fn new(label: String) -> Self {
+        Self {
+            label,
+            window_start: None,
+            window_end: None,
+            base_font: None,
+            grid_font: None,
+        }
+    }
+
+    /// Set the visible time window (epoch-second bounds) that clamps the grid.
+    fn window(mut self, start: Option<i64>, end: Option<i64>) -> Self {
+        self.window_start = start;
+        self.window_end = end;
+        self
+    }
+
+    /// Set the per-section base/grid font-size overrides.
+    fn fonts(mut self, base: Option<String>, grid: Option<String>) -> Self {
+        self.base_font = base;
+        self.grid_font = grid;
+        self
+    }
+
+    /// Pair this key with the panels that fall in it.
+    fn with_panels<'a>(self, panels: Vec<&'a Panel>) -> TimedSection<'a> {
+        TimedSection { key: self, panels }
+    }
+}
+
+/// A [`SectionKey`] paired with the panels that fall in its label/window.
+struct TimedSection<'a> {
+    key: SectionKey,
+    panels: Vec<&'a Panel>,
+}
 
 /// Flatten `panels` into time-labeled slices for `time`, using the export's
 /// precomputed day/half-day timelines (epoch ranges + labels).
@@ -486,7 +526,7 @@ fn day_sections<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<TimedSecti
         .iter()
         .filter_map(|span| {
             let ps = by_key.remove(span.date.as_str())?;
-            (!ps.is_empty()).then(|| (span.label.clone(), ps, None, None, None, None))
+            (!ps.is_empty()).then(|| SectionKey::new(span.label.clone()).with_panels(ps))
         })
         .collect()
 }
@@ -517,21 +557,22 @@ fn half_day_sections<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<Timed
                     .into_iter()
                     .partition(|p| p.start_epoch.is_some_and(|s| s < boundary));
                 if !am_p.is_empty() {
-                    out.push((am.label.clone(), am_p, None, Some(am.end_epoch), None, None));
+                    out.push(
+                        SectionKey::new(am.label.clone())
+                            .window(None, Some(am.end_epoch))
+                            .with_panels(am_p),
+                    );
                 }
                 if !pm_p.is_empty() {
-                    out.push((
-                        pm.label.clone(),
-                        pm_p,
-                        Some(pm.start_epoch),
-                        None,
-                        None,
-                        None,
-                    ));
+                    out.push(
+                        SectionKey::new(pm.label.clone())
+                            .window(Some(pm.start_epoch), None)
+                            .with_panels(pm_p),
+                    );
                 }
             }
-            [single] => out.push((single.label.clone(), day_panels, None, None, None, None)),
-            _ => out.push((day.label.clone(), day_panels, None, None, None, None)),
+            [single] => out.push(SectionKey::new(single.label.clone()).with_panels(day_panels)),
+            _ => out.push(SectionKey::new(day.label.clone()).with_panels(day_panels)),
         }
     }
     out
@@ -575,7 +616,7 @@ fn split_on_timeline<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<Timed
             .collect();
 
         if day_boundaries.is_empty() {
-            out.push((day.label.clone(), day_panels, None, None, None, None));
+            out.push(SectionKey::new(day.label.clone()).with_panels(day_panels));
             continue;
         }
 
@@ -594,24 +635,13 @@ fn split_on_timeline<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<Timed
 
         // Day-label catch-all first (window [None, first_boundary)), then each
         // boundary in order (window [boundary, next_boundary)).
-        let mut section_keys: Vec<(
-            String,
-            Option<i64>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-        )> = vec![(
-            day.label.clone(),
-            None,
-            Some(day_boundaries[0].0),
-            None,
-            None,
-        )];
+        let mut section_keys: Vec<SectionKey> =
+            vec![SectionKey::new(day.label.clone()).window(None, Some(day_boundaries[0].0))];
         for (i, (bstart, name)) in day_boundaries.iter().enumerate() {
             let key = name.to_string();
             let win_end = day_boundaries.get(i + 1).map(|(next, _)| *next);
-            if !section_keys.iter().any(|(k, _, _, _, _)| k == &key) {
-                section_keys.push((key, Some(*bstart), win_end, None, None));
+            if !section_keys.iter().any(|k| k.label == key) {
+                section_keys.push(SectionKey::new(key).window(Some(*bstart), win_end));
             }
         }
 
@@ -623,10 +653,10 @@ fn split_on_timeline<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<Timed
                 .push(panel);
         }
 
-        for (key, win_start, win_end, base_font, grid_font) in section_keys {
-            if let Some(bucket) = buckets.remove(&key) {
+        for key in section_keys {
+            if let Some(bucket) = buckets.remove(&key.label) {
                 if !bucket.is_empty() {
-                    out.push((key, bucket, win_start, win_end, base_font, grid_font));
+                    out.push(key.with_panels(bucket));
                 }
             }
         }
@@ -736,7 +766,11 @@ fn split_on_custom_timeline<'a>(
     if let Some(ref bl) = before_label {
         if let Some(bucket) = buckets.remove(bl.as_str()) {
             if !bucket.is_empty() {
-                out.push((bl.clone(), bucket, None, Some(first_slot_start), None, None));
+                out.push(
+                    SectionKey::new(bl.clone())
+                        .window(None, Some(first_slot_start))
+                        .with_panels(bucket),
+                );
             }
         }
     }
@@ -754,14 +788,12 @@ fn split_on_custom_timeline<'a>(
                     .find(|s| s.label == *label)
                     .map(|s| (s.base_font_pt.clone(), s.grid_font_pt.clone()))
                     .unwrap_or((None, None));
-                out.push((
-                    label.to_string(),
-                    bucket,
-                    Some(*win_start),
-                    *win_end,
-                    base_font,
-                    grid_font,
-                ));
+                out.push(
+                    SectionKey::new(label.to_string())
+                        .window(Some(*win_start), *win_end)
+                        .fonts(base_font, grid_font)
+                        .with_panels(bucket),
+                );
             }
         }
     }
@@ -811,7 +843,17 @@ fn build_sections<'a>(
         (None, Some(time)) => time_sections(&time, panels, data)
             .into_iter()
             .map(
-                |(label, time_panels, win_start, win_end, base_font, grid_font)| {
+                |TimedSection {
+                     key:
+                         SectionKey {
+                             label,
+                             window_start: win_start,
+                             window_end: win_end,
+                             base_font,
+                             grid_font,
+                         },
+                     panels: time_panels,
+                 }| {
                     let grid_panels = if let Some(ws) = win_start {
                         let mut gp = spanning_into(panels, ws);
                         gp.extend_from_slice(&time_panels);
@@ -873,14 +915,17 @@ fn build_sections<'a>(
                 time_sections(&time, panels, data)
                     .into_iter()
                     .filter_map(
-                        move |(
-                            time_label,
-                            time_panels,
-                            win_start,
-                            win_end,
-                            base_font,
-                            grid_font,
-                        )| {
+                        move |TimedSection {
+                                  key:
+                                      SectionKey {
+                                          label: time_label,
+                                          window_start: win_start,
+                                          window_end: win_end,
+                                          base_font,
+                                          grid_font,
+                                      },
+                                  panels: time_panels,
+                              }| {
                             let room_panels: Vec<&Panel> = time_panels
                                 .iter()
                                 .copied()
@@ -924,17 +969,20 @@ fn build_sections<'a>(
             .iter()
             .filter(|p| postcard_rank_eligible(&p.rank))
             .filter_map(|presenter| {
-                let his: Vec<&Panel> = panels
+                // Match by the presenter's authoritative panel-id list (groups
+                // subsume members), not a name string-match.
+                let pid: HashSet<&str> = presenter.panel_ids.iter().map(String::as_str).collect();
+                let pres_panels: Vec<&Panel> = panels
                     .iter()
                     .copied()
-                    .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
+                    .filter(|p| pid.contains(p.id.as_str()))
                     .collect();
-                if his.is_empty() {
+                if pres_panels.is_empty() {
                     return None;
                 }
                 Some(Section {
-                    content_panels: his.clone(),
-                    grid_panels: his,
+                    content_panels: pres_panels.clone(),
+                    grid_panels: pres_panels,
                     highlight_room: None,
                     highlight_panel_ids: None,
                     left_label: String::new(),
@@ -953,42 +1001,56 @@ fn build_sections<'a>(
             .iter()
             .filter(|p| postcard_rank_eligible(&p.rank))
             .flat_map(|presenter| {
+                // Match by the presenter's authoritative panel-id list (a group's
+                // list subsumes its members), not a name string-match — so a group
+                // section highlights its members' panels too.
+                let pid: HashSet<&str> = presenter.panel_ids.iter().map(String::as_str).collect();
                 time_sections(&time, panels, data)
                     .into_iter()
                     .filter_map(
-                        move |(
-                            time_label,
-                            time_panels,
-                            win_start,
-                            win_end,
-                            base_font,
-                            grid_font,
-                        )| {
-                            let his: Vec<&Panel> = time_panels
+                        move |TimedSection {
+                                  key:
+                                      SectionKey {
+                                          label: time_label,
+                                          window_start: win_start,
+                                          window_end: win_end,
+                                          base_font,
+                                          grid_font,
+                                      },
+                                  panels: time_panels,
+                              }| {
+                            let pres_panels: Vec<&Panel> = time_panels
                                 .iter()
                                 .copied()
-                                .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
+                                .filter(|p| pid.contains(p.id.as_str()))
                                 .collect();
-                            if his.is_empty() {
+                            // Days this guest has no panels: skip unless
+                            // `matching_only = false`, which still shows the day —
+                            // the full day grid with nothing highlighted.
+                            if pres_panels.is_empty() && config.matching_only.unwrap_or(true) {
                                 return None;
                             }
-                            let ids: HashSet<String> = his.iter().map(|p| p.id.clone()).collect();
-                            // grid_panels: time section panels + spanning ones for this presenter.
+                            // grid_panels: the full day grid (everyone) plus panels
+                            // spanning into the window. The guest's own panels, if
+                            // any, are highlighted; on a non-matching day none are.
                             let grid_panels = if let Some(ws) = win_start {
-                                let mut gp: Vec<&Panel> = spanning_into(panels, ws)
-                                    .into_iter()
-                                    .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
-                                    .collect();
+                                let mut gp = spanning_into(panels, ws);
                                 gp.extend_from_slice(&time_panels);
                                 gp
                             } else {
                                 time_panels.clone()
                             };
+                            let highlight = (!pres_panels.is_empty()).then(|| {
+                                pres_panels
+                                    .iter()
+                                    .map(|p| p.id.clone())
+                                    .collect::<HashSet<String>>()
+                            });
                             Some(Section {
-                                content_panels: his,
+                                content_panels: pres_panels,
                                 grid_panels,
                                 highlight_room: None,
-                                highlight_panel_ids: Some(ids),
+                                highlight_panel_ids: highlight,
                                 left_label: presenter.name.clone(),
                                 right_label: time_label.clone(),
                                 corner_label: time_label,
@@ -1100,6 +1162,8 @@ mod tests {
         d.presenters = vec![Presenter {
             name: "Ada".into(),
             rank: "guest".into(),
+            // Authoritative panel list (matching is by id, not name).
+            panel_ids: vec!["P1".into(), "P3".into()],
             ..Presenter::default()
         }];
         d.panels = vec![
@@ -1173,6 +1237,102 @@ mod tests {
         assert!(fri.highlight_panel_ids.as_ref().unwrap().contains("P1"));
         assert_eq!(fri.grid_panels.len(), 2); // full Friday grid
         assert_eq!(fri.left_label, "Ada");
+    }
+
+    /// Bea is scheduled only on Friday; Saturday exists (Ada is on it).
+    fn schedule_with_friday_only_presenter() -> ScheduleData {
+        let mut d = two_day_schedule();
+        d.presenters.push(Presenter {
+            name: "Bea".into(),
+            rank: "guest".into(),
+            panel_ids: vec!["P4".into()],
+            ..Presenter::default()
+        });
+        d.panels.push(panel("P4", "26T11", 2, "Bea")); // Fri only
+        d
+    }
+
+    #[test]
+    fn test_sections_presenter_day_matching_only_false() {
+        // With matching_only = false, Bea still gets a Saturday section: the full
+        // Saturday grid (everyone's panels) with nothing highlighted.
+        let d = schedule_with_friday_only_presenter();
+        let c = LayoutConfig {
+            content: ContentMode::GridOnly {
+                section: Some(SectionSplit::Presenter),
+                time: TimeSplit::Day,
+            },
+            matching_only: Some(false),
+            ..LayoutConfig::default()
+        };
+        let panels = filter_panels(&d, d.scheduled_panels(), PanelFilter::All);
+        let secs = build_sections(&c, &d, &panels);
+
+        // Ada: Fri+Sat (2) + Bea: Fri + Sat (2) = 4 sections.
+        let bea: Vec<_> = secs.iter().filter(|s| s.left_label == "Bea").collect();
+        assert_eq!(bea.len(), 2);
+        let bea_sat = bea
+            .iter()
+            .find(|s| s.right_label == "Saturday")
+            .expect("Bea should have a Saturday section");
+        // Full Saturday grid is drawn (P3 is the only Saturday panel)...
+        assert_eq!(bea_sat.grid_panels.len(), 1);
+        // ...but nothing is highlighted, since Bea has no Saturday panel.
+        assert!(bea_sat.highlight_panel_ids.is_none());
+
+        // Bea's Friday section highlights her own panel within the full grid.
+        let bea_fri = bea.iter().find(|s| s.right_label == "Friday").unwrap();
+        assert!(bea_fri
+            .highlight_panel_ids
+            .as_ref()
+            .is_some_and(|h| h.contains("P4")));
+    }
+
+    #[test]
+    fn test_sections_presenter_day_no_empty_grids_by_default() {
+        // Without the flag, a presenter's empty day is skipped (current behavior).
+        let d = schedule_with_friday_only_presenter();
+        let c = cfg(ContentMode::GridOnly {
+            section: Some(SectionSplit::Presenter),
+            time: TimeSplit::Day,
+        });
+        let panels = filter_panels(&d, d.scheduled_panels(), PanelFilter::All);
+        let secs = build_sections(&c, &d, &panels);
+        let bea: Vec<_> = secs.iter().filter(|s| s.left_label == "Bea").collect();
+        assert_eq!(bea.len(), 1); // Friday only
+    }
+
+    #[test]
+    fn test_sections_group_highlights_member_panels() {
+        // A group matches by its panel_ids (which subsume members), not by name —
+        // even when the group name appears on no panel's presenter list.
+        let mut d = two_day_schedule();
+        d.presenters.push(Presenter {
+            name: "The Group".into(),
+            rank: "guest".into(),
+            is_group: true,
+            members: vec!["Ada".into()],
+            // Subsumes Ada's Friday panel P1, though "The Group" credits nothing.
+            panel_ids: vec!["P1".into()],
+            ..Presenter::default()
+        });
+
+        let c = cfg(ContentMode::GridOnly {
+            section: Some(SectionSplit::Presenter),
+            time: TimeSplit::Day,
+        });
+        let panels = filter_panels(&d, d.scheduled_panels(), PanelFilter::All);
+        let secs = build_sections(&c, &d, &panels);
+        let group: Vec<_> = secs
+            .iter()
+            .filter(|s| s.left_label == "The Group")
+            .collect();
+        // One section (Friday), highlighting the member's panel.
+        assert_eq!(group.len(), 1);
+        assert!(group[0]
+            .highlight_panel_ids
+            .as_ref()
+            .is_some_and(|h| h.contains("P1")));
     }
 
     #[test]

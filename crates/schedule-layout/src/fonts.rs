@@ -196,7 +196,10 @@ pub(crate) fn typst_lets(config: &LayoutConfig, brand: &BrandConfig) -> String {
             .micro_max_pt
             .or(brand.fonts.micro_max_pt)
             .unwrap_or(MICRO_MAX_PT);
-        out.push_str(&format!("#let _micro-font = {}\n", font_dict(micro, style, weight)));
+        out.push_str(&format!(
+            "#let _micro-font = {}\n",
+            font_dict(micro, style, weight)
+        ));
         out.push_str(&format!("#let _micro-max = {max:.1}pt\n"));
     }
 

@@ -99,27 +99,21 @@ impl GridLayout {
     ) -> Self {
         let tz = data.meta.timezone.as_str();
 
+        let is_break = |p: &Panel| {
+            data.panel_types
+                .get(p.panel_type.as_deref().unwrap_or(""))
+                .map(|pt| pt.is_break)
+                .unwrap_or(false)
+        };
+
         let regular: Vec<&&Panel> = panels
             .iter()
-            .filter(|p| {
-                !data
-                    .panel_types
-                    .get(p.panel_type.as_deref().unwrap_or(""))
-                    .map(|pt| pt.is_break)
-                    .unwrap_or(false)
-                    && p.start_epoch.is_some()
-            })
+            .filter(|p| !is_break(p) && p.start_epoch.is_some())
             .collect();
 
         let breaks: Vec<&&Panel> = panels
             .iter()
-            .filter(|p| {
-                data.panel_types
-                    .get(p.panel_type.as_deref().unwrap_or(""))
-                    .map(|pt| pt.is_break)
-                    .unwrap_or(false)
-                    && p.start_epoch.is_some()
-            })
+            .filter(|p| is_break(p) && p.start_epoch.is_some())
             .collect();
 
         // Determine room order from regular events.

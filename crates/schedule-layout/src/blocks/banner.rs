@@ -156,6 +156,61 @@ pub(crate) fn page_footer(brand: &BrandConfig, timestamps: &str, site: &str) -> 
     )
 }
 
+/// Generate a `#set page(footer: …)` directive like [`page_footer`] but with the
+/// centered global "Page X of N" replaced by a *per-section* counter labelled by
+/// the running section — e.g. `"Avera: Page 1 of 4"`.
+///
+/// The center cell is a `context` expression that reads the invisible
+/// `<section>` markers (see `document::section_marker`). It groups *contiguous*
+/// sections that share the same entity label — the marker's `left` field, or
+/// `right` when `left` is empty — so a presenter split by day counts across all
+/// of that guest's days (e.g. Thursday→Sunday show "Avera: Page 1/2/3/4 of 4")
+/// rather than resetting every day. It prints the page-within-group out of the
+/// group's page count, derived from the surrounding markers (and the document's
+/// final page).
+///
+/// On a page with no preceding marker (no split active) it degrades to the same
+/// global "Page X of N" that [`page_footer`] shows.
+///
+/// `timestamps` (left) and `site` (right) occupy the same slots as
+/// [`page_footer`]. Must be emitted after `preamble()` so `brand-*` exist.
+pub(crate) fn page_footer_section_pages(timestamps: &str, site: &str) -> String {
+    let left = escape_typst(timestamps);
+    let right = escape_typst(site);
+    format!(
+        "#set page(footer: context [\n  \
+           #set text(size: _footer-text-size, fill: brand-dark)\n  \
+           #line(length: 100%, stroke: _footer-rule + brand-primary)\n  \
+           #v(_footer-rule-gap)\n  \
+           #grid(columns: (1fr, auto, 1fr), \
+             align: (left + horizon, center + horizon, right + horizon),\n    \
+             [{left}],\n    \
+             {{\n      \
+               let _pg = here().page()\n      \
+               let _ms = query(<section>)\n      \
+               let _final = counter(page).final().first()\n      \
+               let _key = m => if m.value.left != \"\" {{ m.value.left }} else {{ m.value.right }}\n      \
+               let _before = _ms.filter(m => m.location().page() <= _pg)\n      \
+               if _before.len() == 0 {{\n        \
+                 [Page #_pg of #_final]\n      \
+               }} else {{\n        \
+                 let _idx = _before.len() - 1\n        \
+                 let _k = _key(_ms.at(_idx))\n        \
+                 let _start_i = _idx\n        \
+                 while _start_i > 0 and _key(_ms.at(_start_i - 1)) == _k {{ _start_i -= 1 }}\n        \
+                 let _end_i = _idx\n        \
+                 while _end_i + 1 < _ms.len() and _key(_ms.at(_end_i + 1)) == _k {{ _end_i += 1 }}\n        \
+                 let _start = _ms.at(_start_i).location().page()\n        \
+                 let _end = if _end_i + 1 < _ms.len() {{ _ms.at(_end_i + 1).location().page() - 1 }} else {{ _final }}\n        \
+                 [#_k: Page #(_pg - _start + 1) of #(_end - _start + 1)]\n      \
+               }}\n    \
+             }},\n    \
+             [{right}],\n  \
+           )\n\
+         ])\n",
+    )
+}
+
 /// Generate a `#set page(footer: …)` directive showing only the
 /// modified/generated timestamps, centered, with no page number or site label.
 ///

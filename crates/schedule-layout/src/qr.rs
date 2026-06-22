@@ -161,7 +161,7 @@ mod tests {
         assert!(with.contains("Register Here"));
         assert!(with.contains("size: 12.5pt")); // caption size override
         assert!(with.contains("size: 10pt")); // url size override
-        // No caption cell when the message is absent.
+                                              // No caption cell when the message is absent.
         let without =
             qr_page_foreground("https://example.com", None, "9pt", "7pt", "0.75in").unwrap();
         assert!(!without.contains("_heading-font"));

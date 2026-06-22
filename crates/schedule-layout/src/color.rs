@@ -70,8 +70,7 @@ impl PanelColor {
 pub fn to_grayscale_hex(hex: &str) -> String {
     match parse_hex_color(hex) {
         Some((r, g, b)) => {
-            let luma =
-                (LUMA_R * r as f64 + LUMA_G * g as f64 + LUMA_B * b as f64).round() as u8;
+            let luma = (LUMA_R * r as f64 + LUMA_G * g as f64 + LUMA_B * b as f64).round() as u8;
             format!("#{luma:02X}{luma:02X}{luma:02X}")
         }
         None => hex.to_string(),

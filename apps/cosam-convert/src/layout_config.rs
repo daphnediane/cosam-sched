@@ -198,10 +198,16 @@ pub struct JobConfig {
     pub include_private: Option<bool>,
     /// Color mode: "color" (default) or "bw". Optional.
     pub color_mode: Option<String>,
-    /// Page footer: "full" (default), "timestamp_only", "none". Optional.
+    /// Page footer: "full" (default), "timestamp_only", "section_pages", "none".
+    /// `"section_pages"` shows a per-section "Label: Page X of Y" counter (needs
+    /// an active split). Optional.
     pub footer: Option<String>,
     /// Insert blank pages so each section starts on an odd page. Optional.
     pub double_sided: Option<bool>,
+    /// For per-presenter day grids, show only the days a presenter is scheduled.
+    /// Defaults to `true` (skip days they have no panels). Set `false` to still
+    /// show those days — the full day grid with nothing highlighted. Optional.
+    pub matching_only: Option<bool>,
     /// Header text (left for 1-D splits, right for "none"). Optional.
     pub header_text: Option<String>,
     /// Column-count override. If unset, the content/paper default is used.
@@ -303,6 +309,9 @@ impl JobConfig {
         }
         if other.double_sided.is_some() {
             self.double_sided = other.double_sided;
+        }
+        if other.matching_only.is_some() {
+            self.matching_only = other.matching_only;
         }
         if other.header_text.is_some() {
             self.header_text = other.header_text.clone();
@@ -481,12 +490,13 @@ pub(crate) fn parse_panel_filter(s: Option<&str>) -> PanelFilter {
 pub(crate) fn parse_footer(s: Option<&str>) -> FooterMode {
     match s {
         Some("timestamp_only") | Some("timestamp-only") => FooterMode::TimestampOnly,
+        Some("section_pages") | Some("section-pages") => FooterMode::SectionPages,
         Some("none") => FooterMode::None,
         None | Some("full") => FooterMode::Full,
         Some(other) => {
             eprintln!(
                 "warning: unknown footer '{other}'; expected one of: full, timestamp_only, \
-                 none — using 'full'"
+                 section_pages, none — using 'full'"
             );
             FooterMode::Full
         }
@@ -708,6 +718,7 @@ impl JobConfig {
             columns: self.columns,
             footer: parse_footer(self.footer.as_deref()),
             double_sided: self.double_sided.unwrap_or(false),
+            matching_only: self.matching_only,
             header_text: self.header_text.clone(),
             base_font_pt: self.base_font_pt.clone(),
             grid_font_pt: self.grid_font_pt.clone(),
@@ -781,6 +792,7 @@ pub fn apply_layout_arg(job: &mut JobConfig, key: &str, value: Option<&str>) -> 
         "color_mode" => job.color_mode = Some(str_val()?),
         "footer" => job.footer = Some(str_val()?),
         "double_sided" => job.double_sided = Some(parse_layout_bool(key, value)?),
+        "matching_only" => job.matching_only = Some(parse_layout_bool(key, value)?),
         "header_text" => job.header_text = Some(str_val()?),
         "columns" => {
             job.columns = Some(
@@ -881,6 +893,48 @@ mod tests {
     fn test_default_layout_has_jobs() {
         let defaults = LayoutDefaults::default_layout();
         assert!(!defaults.jobs.is_empty());
+    }
+
+    #[test]
+    fn test_parse_footer_modes() {
+        assert!(matches!(parse_footer(None), FooterMode::Full));
+        assert!(matches!(parse_footer(Some("full")), FooterMode::Full));
+        assert!(matches!(
+            parse_footer(Some("timestamp_only")),
+            FooterMode::TimestampOnly
+        ));
+        assert!(matches!(
+            parse_footer(Some("section_pages")),
+            FooterMode::SectionPages
+        ));
+        assert!(matches!(
+            parse_footer(Some("section-pages")),
+            FooterMode::SectionPages
+        ));
+        assert!(matches!(parse_footer(Some("none")), FooterMode::None));
+        // Unknown falls back to Full.
+        assert!(matches!(parse_footer(Some("bogus")), FooterMode::Full));
+    }
+
+    #[test]
+    fn test_parse_toml_matching_only() {
+        let toml = r#"
+[[jobs]]
+content = "grid_only"
+time_split = "day"
+section_split = "presenter"
+stem = "guest"
+matching_only = false
+footer = "section_pages"
+"#;
+        let defaults = LayoutDefaults::from_str(toml).unwrap();
+        assert_eq!(defaults.jobs[0].matching_only, Some(false));
+        assert_eq!(defaults.jobs[0].footer, Some("section_pages".to_string()));
+        // Unset defaults to matching-only (true) at the resolved-config boundary.
+        let resolved = JobConfig::default()
+            .to_layout_config(&HashMap::new(), None)
+            .0;
+        assert!(resolved.matching_only.unwrap_or(true));
     }
 
     #[test]

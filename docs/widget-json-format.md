@@ -433,7 +433,7 @@ Both arrays are omitted when there are no scheduled sessions.
 | isGroup         | Boolean         | True if this is a group                             |
 | members         | `Array<String>` | Group member names (empty for individuals)          |
 | groups          | `Array<String>` | Groups this presenter belongs to (empty for groups) |
-| panelIds        | `Array<String>` | Panel IDs where this presenter/group should appear  |
+| panelIds        | `Array<String>` | **Authoritative** list of panel `id`s this presenter/group appears on (see below) |
 | subsumesMembers | Boolean?        | True if this group subsumes its members (tag: ==)   |
 
 ### Bidirectional Group Membership Logic
@@ -450,6 +450,28 @@ This ensures:
 - If "Pro" of "Pros and Cons Cosplay" presents solo, both "Pro" AND "Pros and Cons Cosplay" appear
 - If "Imperial Storm Troopers" presents, both "105th" and "501st" appear (groups of groups)
 - "Birthday Party Princesses" doesn't appear just because a 105th member belongs to it
+
+### Panel Association (`panelIds`)
+
+`panelIds` is the **canonical, authoritative** presenter→panel association.
+Consumers that need "which panels belong to this presenter/group" — the widget's
+presenter filter and the **print guest schedules** (`schedule-layout`, which
+highlights a guest's panels and pages a booklet per guest) — must use `panelIds`,
+**not** a name match against a panel's `presenters` array.
+
+For a group, `panelIds` already **subsumes its members**: it lists every panel
+any member presents, even when the panel's `presenters`/`credits` never name the
+group itself. For example, "Pros and Cons Cosplay" (members "Pro", "Con") carries
+the panel ids of every "Pro"/"Con" session, so its `panelIds` is non-empty even
+though no panel credits the literal string "Pros and Cons Cosplay". Matching such
+a group by name would yield **zero** panels; matching by `panelIds` is correct.
+
+This makes `panelIds` a hard dependency for those consumers: the exporter must
+populate it for **every** presenter (individuals and groups), reflecting group
+membership and `subsumesMembers`. An empty `panelIds` means "appears on no
+panel" — such a presenter is omitted from the display format entirely (see
+Filtering). Conversely, `presenters` on a panel is for free-text search/filtering
+only and is not a reliable presenter→panel index for groups.
 
 ### Filtering
 
