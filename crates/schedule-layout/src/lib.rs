@@ -29,6 +29,7 @@ pub mod geometry;
 #[cfg(feature = "idml")]
 pub mod idml;
 pub mod model;
+pub mod qr;
 pub mod time_fmt;
 pub mod timegrid;
 pub mod typst_gen;

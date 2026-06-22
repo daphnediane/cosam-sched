@@ -242,6 +242,16 @@ pub struct JobConfig {
     /// Fit a full-page schedule grid onto one page, condensing text-heavy cells
     /// when needed. Defaults to on for grid-only content, off otherwise.
     pub fit_grid: Option<bool>,
+    /// Optional URL encoded as a QR code in the bottom-right corner of each page.
+    pub qr_url: Option<String>,
+    /// Optional caption shown above the QR code (e.g. `"Register Here"`).
+    pub qr_msg: Option<String>,
+    /// Caption text size as a Typst length, e.g. `"12.5pt"` (default "9pt").
+    pub qr_caption_pt: Option<String>,
+    /// URL text size as a Typst length, e.g. `"10pt"` (default "7pt").
+    pub qr_url_pt: Option<String>,
+    /// QR code size as a Typst length (e.g. `"0.75in"`). Defaults to 0.75in.
+    pub qr_size: Option<String>,
 }
 
 // ── Preset resolution ─────────────────────────────────────────────────────────
@@ -341,6 +351,21 @@ impl JobConfig {
         }
         if other.fit_grid.is_some() {
             self.fit_grid = other.fit_grid;
+        }
+        if other.qr_url.is_some() {
+            self.qr_url = other.qr_url.clone();
+        }
+        if other.qr_msg.is_some() {
+            self.qr_msg = other.qr_msg.clone();
+        }
+        if other.qr_caption_pt.is_some() {
+            self.qr_caption_pt = other.qr_caption_pt.clone();
+        }
+        if other.qr_url_pt.is_some() {
+            self.qr_url_pt = other.qr_url_pt.clone();
+        }
+        if other.qr_size.is_some() {
+            self.qr_size = other.qr_size.clone();
         }
     }
 
@@ -693,6 +718,11 @@ impl JobConfig {
             micro_weight: self.micro_weight.clone(),
             micro_max_pt: self.micro_max_pt,
             fit_grid: self.fit_grid,
+            qr_url: self.qr_url.clone(),
+            qr_msg: self.qr_msg.clone(),
+            qr_caption_pt: self.qr_caption_pt.clone(),
+            qr_url_pt: self.qr_url_pt.clone(),
+            qr_size: self.qr_size.clone(),
         };
         (config, self.stem.clone())
     }
@@ -774,6 +804,11 @@ pub fn apply_layout_arg(job: &mut JobConfig, key: &str, value: Option<&str>) -> 
             )
         }
         "fit_grid" => job.fit_grid = Some(parse_layout_bool(key, value)?),
+        "qr_url" => job.qr_url = Some(str_val()?),
+        "qr_msg" => job.qr_msg = Some(str_val()?),
+        "qr_caption_pt" => job.qr_caption_pt = Some(str_val()?),
+        "qr_url_pt" => job.qr_url_pt = Some(str_val()?),
+        "qr_size" => job.qr_size = Some(str_val()?),
         other => anyhow::bail!("unknown --layout.{other} key"),
     }
     Ok(())

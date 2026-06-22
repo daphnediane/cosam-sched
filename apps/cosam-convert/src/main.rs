@@ -1296,7 +1296,20 @@ fn run_layout_export(
             .map(|p| p.join("layout.toml"))
             .unwrap_or_else(|| PathBuf::from("config/layout.toml"))
     });
-    let user_defaults = LayoutDefaults::load(&layout_defaults_path).unwrap_or_default();
+    // A missing file yields empty defaults (Ok); a *parse* error must not be
+    // swallowed, or a single typo silently discards the whole user config and
+    // falls back to built-in defaults.
+    let user_defaults = match LayoutDefaults::load(&layout_defaults_path) {
+        Ok(defaults) => defaults,
+        Err(err) => {
+            eprintln!(
+                "warning: failed to parse layout config {}: {err}\n         \
+                 falling back to built-in defaults",
+                layout_defaults_path.display(),
+            );
+            LayoutDefaults::default()
+        }
+    };
 
     let global_brand = || {
         settings

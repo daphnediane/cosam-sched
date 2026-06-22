@@ -402,6 +402,23 @@ pub struct LayoutConfig {
     /// off otherwise. Set `Some(false)` to let a grid flow naturally (and
     /// paginate) instead, or `Some(true)` to force fitting.
     pub fit_grid: Option<bool>,
+    /// Optional URL encoded as a QR code placed in the bottom-right corner of
+    /// every page. `None` omits the QR entirely. The URL is also shown in small
+    /// text below the code.
+    pub qr_url: Option<String>,
+    /// Optional caption shown above the QR code (e.g. `"Register Here"`). Only
+    /// used when [`qr_url`](Self::qr_url) is set.
+    pub qr_msg: Option<String>,
+    /// Caption text size as a Typst length (e.g. `"12.5pt"`). `None` uses
+    /// [`crate::qr::DEFAULT_CAPTION_SIZE`].
+    pub qr_caption_pt: Option<String>,
+    /// URL text size as a Typst length (e.g. `"10pt"`). `None` uses
+    /// [`crate::qr::DEFAULT_URL_SIZE`].
+    pub qr_url_pt: Option<String>,
+    /// QR code size as a Typst length (e.g. `"0.75in"`). `None` uses the default
+    /// ([`crate::qr::DEFAULT_QR_SIZE`]). Only used when [`qr_url`](Self::qr_url)
+    /// is set.
+    pub qr_size: Option<String>,
 }
 
 impl LayoutConfig {
@@ -475,6 +492,34 @@ impl LayoutConfig {
             }
             Some(s) => sanitize_length(s).unwrap_or_else(|| "_col-gutter".to_string()),
         }
+    }
+
+    /// QR code size as a Typst length, honoring [`qr_size`](Self::qr_size) and
+    /// falling back to [`crate::qr::DEFAULT_QR_SIZE`] when unset or invalid.
+    pub fn qr_size_expr(&self) -> String {
+        self.qr_size
+            .as_deref()
+            .and_then(sanitize_length)
+            .unwrap_or_else(|| crate::qr::DEFAULT_QR_SIZE.to_string())
+    }
+
+    /// QR caption text size as a Typst length, honoring
+    /// [`qr_caption_pt`](Self::qr_caption_pt) and falling back to
+    /// [`crate::qr::DEFAULT_CAPTION_SIZE`].
+    pub fn qr_caption_size_expr(&self) -> String {
+        self.qr_caption_pt
+            .as_deref()
+            .and_then(sanitize_length)
+            .unwrap_or_else(|| crate::qr::DEFAULT_CAPTION_SIZE.to_string())
+    }
+
+    /// QR URL text size as a Typst length, honoring [`qr_url_pt`](Self::qr_url_pt)
+    /// and falling back to [`crate::qr::DEFAULT_URL_SIZE`].
+    pub fn qr_url_size_expr(&self) -> String {
+        self.qr_url_pt
+            .as_deref()
+            .and_then(sanitize_length)
+            .unwrap_or_else(|| crate::qr::DEFAULT_URL_SIZE.to_string())
     }
 }
 

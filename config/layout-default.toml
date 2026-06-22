@@ -32,6 +32,11 @@
 #   micro          = "..."      # micro font family for small text (overrides brand);
 #                               #   "none" disables the small-size substitution for this job
 #   micro_max_pt   = 8.0        # size (pt) below which text switches to the micro font
+#   qr_url         = "https://..."  # encode this URL as a QR code in the bottom-right corner
+#   qr_msg         = "Register Here" # caption above the QR (heading font); URL shows below
+#   qr_size        = "0.75in"   # QR code size (default 0.75in); only used with qr_url
+#   qr_caption_pt  = "9pt"      # caption text size (default 9pt)
+#   qr_url_pt      = "7pt"      # URL text size (default 7pt)
 #
 # Style keys (colors accept hex "#f2f2f2", "luma(95%)", or names like "white"):
 #   page_fill       = "luma(95%)"  # page background tint (default: white)

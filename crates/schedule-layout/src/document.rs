@@ -144,6 +144,21 @@ pub fn generate(
     // markers emitted at each section start.
     doc.push_str(&build_header(brand, config));
 
+    // Optional QR code in the bottom-right corner of every page.
+    if let Some(url) = config.qr_url.as_deref() {
+        if let Some(qr) = crate::qr::qr_page_foreground(
+            url,
+            config.qr_msg.as_deref(),
+            &config.qr_caption_size_expr(),
+            &config.qr_url_size_expr(),
+            &config.qr_size_expr(),
+        ) {
+            doc.push_str(&qr);
+        } else {
+            eprintln!("warning: QR URL could not be encoded (too long?): {url}");
+        }
+    }
+
     for (i, section) in sections.iter().enumerate() {
         if i > 0 {
             if config.double_sided {
