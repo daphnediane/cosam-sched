@@ -31,7 +31,7 @@ const jsOptions = {
 
 // Loader files: plain scripts that extend window.CosAmCalendar.
 // Built as IIFE so esbuild can minify; no npm imports.
-const loaderNames = ['load-json-embed', 'load-html-embed', 'load-data-url', 'load-config-url'];
+const loaderNames = ['load-json-embed', 'load-html-embed', 'load-data-url', 'load-config-url', 'print-format-advanced'];
 const loaderOptionsList = loaderNames.map(name => /** @type {esbuild.BuildOptions} */({
   entryPoints: [`widget/${name}.js`],
   bundle: true,
@@ -41,6 +41,17 @@ const loaderOptionsList = loaderNames.map(name => /** @type {esbuild.BuildOption
   legalComments: 'inline',
   charset: 'utf8',
   outfile: `widget/${name}.min.js`,
+  logLevel: 'info',
+}));
+
+// Print plugin CSS files
+const cssPluginNames = ['print-format-advanced'];
+const cssPluginOptionsList = cssPluginNames.map(name => /** @type {esbuild.BuildOptions} */({
+  entryPoints: [`widget/${name}.css`],
+  bundle: false,
+  minify: true,
+  charset: 'utf8',
+  outfile: `widget/${name}.min.css`,
   logLevel: 'info',
 }));
 
@@ -59,6 +70,7 @@ if (watch) {
     esbuild.context(jsOptions),
     esbuild.context(cssOptions),
     ...loaderOptionsList.map(o => esbuild.context(o)),
+    ...cssPluginOptionsList.map(o => esbuild.context(o)),
   ]);
   await Promise.all(contexts.map(ctx => ctx.watch()));
   console.log('Watching widget/ for changes...');
@@ -67,5 +79,6 @@ if (watch) {
     esbuild.build(jsOptions),
     esbuild.build(cssOptions),
     ...loaderOptionsList.map(o => esbuild.build(o)),
+    ...cssPluginOptionsList.map(o => esbuild.build(o)),
   ]);
 }

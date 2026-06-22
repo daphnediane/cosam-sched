@@ -1,0 +1,300 @@
+/*
+ * Copyright (c) 2026 Daphne Pfister
+ * SPDX-License-Identifier: BSD-2-Clause
+ * See LICENSE file for full license text
+ */
+
+/* ── Advanced Print Format Styles ───────────────────────────────────────────── */
+
+/* Print grid styles */
+.cosam-print-grid .cosam-grid-event-people,
+.cosam-print-grid .cosam-grid-event-room {
+  display: none !important;
+}
+
+.cosam-print-grid .cosam-grid-event-name {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.cosam-print-grid .cosam-grid-event-credits {
+  font-style: italic;
+  opacity: 0.85;
+  word-break: break-word;
+}
+
+.cosam-print-grid .cosam-grid-event-time {
+  opacity: 0.85;
+}
+
+/* Brand header band: logo + title on the brand-primary color. */
+.cosam-print-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  margin: 0 0 6px;
+  background: var(--cosam-print-header-bg, var(--cosam-accent, #00bcdd));
+  color: #fff;
+  break-inside: avoid;
+  break-after: avoid;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Inside a multi-column section the banner spans the full width at the top,
+   so the grid/descriptions flow beneath it across the columns. */
+.cosam-print-section.cosam-print-has-desc > .cosam-print-header {
+  column-span: all;
+}
+
+.cosam-print-header-logo {
+  max-height: 0.3in;
+  width: auto;
+}
+
+.cosam-print-header-title {
+  font-family: var(--cosam-print-font-banner, inherit);
+  font-size: var(--cosam-print-banner-pt, 12pt);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+/* A header before the first day label cancels that label's page break. */
+.cosam-print-header + .cosam-print-day-label {
+  break-before: avoid;
+  page-break-before: avoid;
+}
+
+/* Footer band: timestamps, site label, custom text. */
+.cosam-print-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 6px;
+  padding-top: 3px;
+  border-top: 0.5px solid #999;
+  font-size: 7pt;
+  color: #444;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.cosam-print-footer-site {
+  margin-left: auto;
+}
+
+/* Ensure footer repeats at bottom of each page */
+@media print {
+  .cosam-print-root {
+    position: relative;
+  }
+
+  .cosam-print-day-wrap {
+    position: relative;
+    min-height: 100%;
+  }
+}
+
+/* Descriptions wrapper. Columns are owned by the enclosing
+   `.cosam-print-section` flow (page-level multi-column), so this is just a
+   flowing block — no nested multi-column here. */
+.cosam-print-desc-cols {
+  display: block;
+}
+
+.cosam-print-desc-cols .cosam-event-card,
+.cosam-print-desc-list .cosam-print-event-card {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* The list view inside a column wrapper must not impose its own layout. */
+.cosam-print-desc-cols .cosam-list-view,
+.cosam-print-desc-cols .cosam-day-section {
+  display: block;
+}
+
+/* Print description list (Typst style) */
+.cosam-print-desc-list {
+  width: 100%;
+}
+
+.cosam-print-time-slot-header {
+  font-size: 8px;
+  font-weight: 600;
+  margin: 8px 0 4px 0;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+.cosam-print-event-card {
+  margin-bottom: 6px;
+  padding: 2px 0 2px 6px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.cosam-print-event-title-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 2px;
+}
+
+.cosam-print-event-title-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cosam-print-event-title-right {
+  text-align: right;
+  font-size: 7px;
+  color: #555;
+  white-space: nowrap;
+}
+
+.cosam-print-event-title {
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.cosam-print-event-presenter {
+  font-size: 7px;
+  font-style: italic;
+  color: #555;
+}
+
+.cosam-print-event-desc {
+  font-size: 7px;
+  line-height: 1.3;
+  color: #333;
+}
+
+.cosam-print-compact .cosam-event-desc {
+  display: none !important;
+}
+
+/* Cards on/off: bordered cards vs. flat listing for descriptions. */
+.cosam-print-cards .cosam-print-desc-cols .cosam-event-card {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: #fff;
+}
+
+.cosam-print-root:not(.cosam-print-cards) .cosam-print-desc-cols .cosam-event-card {
+  border: none;
+  border-radius: 0;
+  padding: 2px 0 2px 6px;
+  margin-bottom: 6px;
+}
+
+/* Font-role bindings (families set via --cosam-print-font-* vars). */
+.cosam-print-root .cosam-print-day-label {
+  font-family: var(--cosam-print-font-banner, inherit);
+}
+
+.cosam-print-root .cosam-event-title,
+.cosam-print-root .cosam-grid-event-name {
+  font-family: var(--cosam-print-font-heading, inherit);
+}
+
+.cosam-print-root .cosam-event-desc,
+.cosam-print-root .cosam-event-meta,
+.cosam-print-root .cosam-event-presenters {
+  font-family: var(--cosam-print-font-body, inherit);
+}
+
+/* Optional base/grid point-size overrides. */
+.cosam-print-root .cosam-event-card {
+  font-size: var(--cosam-print-base-pt, 12pt);
+}
+
+.cosam-print-root .cosam-grid-event {
+  font-size: var(--cosam-print-grid-pt, 9pt);
+}
+
+/* Scale all child elements relative to base font size */
+.cosam-print-root .cosam-event-title {
+  font-size: 1.1em;
+}
+
+.cosam-print-root .cosam-event-meta {
+  font-size: 0.85em;
+}
+
+.cosam-print-root .cosam-event-desc {
+  font-size: 0.9em;
+}
+
+.cosam-print-root .cosam-event-presenters {
+  font-size: 0.85em;
+}
+
+.cosam-print-root .cosam-event-badges {
+  font-size: 0.75em;
+}
+
+.cosam-print-root .cosam-badge {
+  font-size: 0.9em;
+}
+
+/* Black & white: neutralize all panel-type colors. */
+.cosam-print-bw .cosam-print-header {
+  background: #000 !important;
+  color: #fff !important;
+}
+
+.cosam-print-bw .cosam-event-color-bar {
+  background: #000 !important;
+}
+
+.cosam-print-bw .cosam-grid-event {
+  border-left-color: #000 !important;
+}
+
+.cosam-print-bw .cosam-event-title,
+.cosam-print-bw .cosam-event-desc,
+.cosam-print-bw .cosam-event-meta {
+  color: #000 !important;
+}
+
+/* ── Print format menu & edit form (screen UI) ─────────────────────────── */
+.cosam-print-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.cosam-print-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cosam-print-field-label {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: var(--cosam-text, #1f2937);
+}
+
+.cosam-print-field .cosam-select,
+.cosam-print-field input[type="text"],
+.cosam-print-field input[type="number"] {
+  flex: 1 1 60%;
+  max-width: 60%;
+}
+
+.cosam-print-form-sep {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--cosam-border, #e5e7eb);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--cosam-text-muted, #6b7280);
+}

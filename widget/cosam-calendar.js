@@ -1744,20 +1744,10 @@ import QRCode from 'qrcode';
       right.appendChild(shareBtn);
 
       // Print
-      if (this.state._printPlugin && typeof this.state._printPlugin.extendToolbar === 'function') {
-        // Print plugin registered: show simple print button and let plugin add its UI
-        const printBtn = el('button', {
-          type: 'button',
-          className: 'cosam-btn cosam-btn-icon',
-          title: 'Print schedule',
-          'aria-label': 'Print schedule',
-          innerHTML: ICONS.print,
-          onClick: () => this._handlePrint(),
-        });
-        right.appendChild(printBtn);
-        this.state._printPlugin.extendToolbar(right, this._printPluginCtx());
-      } else {
-        // No print plugin: show built-in print dropdown
+      const suppressPrintButton = this.state._printPlugin && this.state._printPlugin.suppressPrintButton === true;
+
+      if (!suppressPrintButton) {
+        // Show built-in print dropdown (unless plugin suppresses it)
         const printGroup = el('div', { className: 'cosam-print-group' });
 
         // Print action button
@@ -1784,7 +1774,13 @@ import QRCode from 'qrcode';
         printChevron.innerHTML = ICONS.chevronDown;
         printOptionsBtn.appendChild(printChevron);
 
-        const printMenu = this._buildPrintMenu();
+        // Build print menu (allow plugin to customize)
+        let printMenu = this._buildPrintMenu();
+        if (this.state._printPlugin && typeof this.state._printPlugin.buildPrintMenu === 'function') {
+          const customMenu = this.state._printPlugin.buildPrintMenu(printMenu, this._printPluginCtx());
+          if (customMenu) printMenu = customMenu;
+        }
+
         printOptionsBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           const isOpen = printMenu.classList.toggle('open');
@@ -1803,6 +1799,11 @@ import QRCode from 'qrcode';
 
         printGroup.append(printOptionsBtn, printMenu);
         right.appendChild(printGroup);
+      }
+
+      // Allow plugin to add additional toolbar items
+      if (this.state._printPlugin && typeof this.state._printPlugin.extendToolbar === 'function') {
+        this.state._printPlugin.extendToolbar(right, this._printPluginCtx());
       }
 
       // Help
@@ -3617,6 +3618,8 @@ import QRCode from 'qrcode';
         data: this.state.data,
         brand: (this.state.data && this.state.data.brand) || {},
         view: this.state.view,
+        ICONS: ICONS,
+        el: el,
       };
     }
 
@@ -3916,6 +3919,13 @@ ${allCSS}
     const data = renderer._normalizeDataModel(rawData);
     state.data = data;
 
+    // Call plugin attach after data is loaded so it can access printFormats
+    // Only call if not already attached (check for a flag)
+    if (state._printPlugin && typeof state._printPlugin.attach === 'function' && !state._printPlugin._attached) {
+      state._printPlugin.attach({ renderer, state, ICONS });
+      state._printPlugin._attached = true;
+    }
+
     // Build state.days from precomputed dayTimeline when available (FEATURE-154).
     // dayTimeline entries carry a stable YYYY-MM-DD `date` key and a localized
     // `label` — no wall-clock parsing needed. Fall back to scanning panels for
@@ -4015,9 +4025,7 @@ ${allCSS}
       // to force the simple print explicitly.
       if (opts.printPlugin) {
         state._printPlugin = opts.printPlugin;
-        if (typeof opts.printPlugin.attach === 'function') {
-          opts.printPlugin.attach({ renderer, state });
-        }
+        // Don't call attach yet - wait until data is loaded so state.data.printFormats is available
       }
 
       // Keep the sticky offset in sync with viewport changes.

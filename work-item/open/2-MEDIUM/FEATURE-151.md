@@ -61,7 +61,7 @@ This feature introduces a pluggable print architecture for the widget:
 - Remove config field from WidgetExport to completely separate concerns.
 - Create widget-config-format.md documentation for the config format.
 
-### Current direction — Pluggable print architecture
+### Current direction — Pluggable print architecture (Phase 2)
 
 The advanced format system (originally built on `feature/widget-print-formats`,
 commit `3f0effd`) had layout bugs and lived inside core `cosam-calendar.js`. To
@@ -84,13 +84,33 @@ keep core lean, print is being made **pluggable**:
   reuses core's grid engine via `ctx.renderer._buildGridView(...)` and owns its
   own localStorage + toolbar UI. `cosam-convert` embeds the **simple** print by
   default until the plugin's layout bugs are fixed; a flag opts into the plugin.
-- **Typst WASM PDF export (FEATURE-152)** rebases onto the same `printPlugin`
-  seam as a second plugin (its `pdfExportHook` → `printPlugin`).
 - The advanced code is preserved on `feature/widget-print-formats` (commit
   `3f0effd`) as the source to transplant into the plugin.
 
 The positive-layered print CSS leaves a `format-print` layer slot for the plugin
 to populate alongside the `common-print` base and the `simple-print` layer.
+
+### Align advanced printing format with schedule-layout (Phase 3)
+
+The advanced printing format should produce similar output to the schedule-layout
+based typst system. Known issues to address:
+
+- [ ] Banner not displaying correctly
+- [ ] Multi-column layout getting lost in print output
+- [ ] Multi-column CSS rules were mixed into screen widget CSS during earlier rebases
+      (unused there) but are missing from print-format-advanced.css
+- [ ] Description blocks have formatting regressions compared to the original
+      feature/widget-print-formats branch
+- [ ] Compare CSS differences between original branch and current implementation:
+      `git diff de422f39bc..feature/widget-print-formats widget/cosam-calendar.css`
+      and `git diff de422f39bc..HEAD widget/cosam-calendar.css`
+
+### Future direction -- Typst PDF export plugin (Phase 4)
+
+- **Typst WASM PDF export (FEATURE-152)** rebases onto the same `printPlugin`
+  seam as a second plugin (its `pdfExportHook` → `printPlugin`).
+- The typst plugin still needed signafication work and was not working in
+  its original branch feature/widget-print-typst.
 
 ## Acceptance Criteria
 
@@ -100,9 +120,12 @@ to populate alongside the `common-print` base and the `simple-print` layer.
       the page, readable text, theme-aware colors, bracketing breaks stripped,
       starred-pick marks, generated/modified footer; plus a `printPlugin` seam on
       `CosAmCalendar.init` for opt-in plugins.
-- [ ] Advanced print-format plugin reintroduces the format dropdown + CRUD,
+- [x] Advanced print-format plugin reintroduces the format dropdown + CRUD,
       seeded from shipped defaults, persisted to localStorage (transplanted from
       `feature/widget-print-formats` commit `3f0effd`).
+- [x] `cosam-convert` embeds print plugins via `--print-plugin` flag:
+      `--print-plugin advanced` for built-in advanced plugin, `--print-plugin <file>`
+      for custom plugin, or omit for built-in simple print (default).
 - [ ] Plugin print output applies brand header band, web fonts, columns, and B&W
       mode.
 - [ ] Plugin approaches the `schedule-layout` house style — time/section splits,

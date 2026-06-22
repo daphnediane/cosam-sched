@@ -34,6 +34,11 @@ const BUILTIN_CSS: &str = include_str!("../../../widget/cosam-calendar.min.css")
 const BUILTIN_JS: &str = include_str!("../../../widget/cosam-calendar.min.js");
 const BUILTIN_JSON_EMBED_LOADER: &str = include_str!("../../../widget/load-json-embed.min.js");
 const BUILTIN_HTML_EMBED_LOADER: &str = include_str!("../../../widget/load-html-embed.min.js");
+const BUILTIN_PRINT_FORMAT_ADVANCED: &str =
+    include_str!("../../../widget/print-format-advanced.min.js");
+const BUILTIN_PRINT_FORMAT_ADVANCED_CSS: &str =
+    include_str!("../../../widget/print-format-advanced.min.css");
+// const BUILTIN_PRINT_FORMAT_TYPST: &str = include_str!("../../../widget/print-format-typst.min.js")
 const BUILTIN_TEMPLATE: &str = include_str!("../../../widget/square-template.html");
 
 const COPYRIGHT_COMMENT: &str = "\
@@ -62,11 +67,13 @@ const STICKY_OFFSET_LINE: &str =
 /// `loader_expr` is the JS expression producing the loader (e.g.
 /// `CosAmCalendar.HtmlEmbedLoader()`); `style_page_line` is the optional
 /// `stylePageBody` opt line (already indented, or empty); `show_even_grid_switch_line`
-/// is the optional `showEvenGridSwitch` opt line (already indented, or empty).
+/// is the optional `showEvenGridSwitch` opt line (already indented, or empty);
+/// `print_plugin_line` is the optional print plugin hook line.
 fn init_bootstrap(
     loader_expr: &str,
     style_page_line: &str,
     show_even_grid_switch_line: &str,
+    print_plugin_line: &str,
 ) -> String {
     format!(
         r#"// Initialize widget — resilient to Squarespace 7.0 Ajax navigation.
@@ -80,7 +87,7 @@ fn init_bootstrap(
         el.setAttribute('data-cosam-mounted', '1');
         CosAmCalendar.init({{
             el: el,
-            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}{show_even_grid_switch_line}
+            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}{show_even_grid_switch_line}{print_plugin_line}
         }});
     }}
     document.addEventListener('DOMContentLoaded', mount);
@@ -223,6 +230,7 @@ pub fn generate_embed_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n            stylePageBody: true,",
@@ -233,6 +241,55 @@ pub fn generate_embed_html(
         Some(true) => "\n            showEvenGridSwitch: true,",
         Some(false) => "\n            showEvenGridSwitch: false,",
         None => "",
+    };
+    let (print_plugin_js, print_plugin_css, print_plugin_line) = match print_plugin {
+        Some("advanced") => (
+            format!(
+                r#"
+// Print format plugin (advanced)
+{plugin}"#,
+                plugin = BUILTIN_PRINT_FORMAT_ADVANCED
+            ),
+            format!(
+                r#"
+<style>
+{css}
+</style>"#,
+                css = BUILTIN_PRINT_FORMAT_ADVANCED_CSS
+            ),
+            "\n            printPlugin: new window.PrintFormatPlugin(),",
+        ),
+        Some(file_path) => {
+            let plugin_content = std::fs::read_to_string(file_path)
+                .with_context(|| format!("Failed to read print plugin file: {}", file_path))?;
+            // Derive CSS path by replacing .js or .min.js with .css
+            let css_path = file_path.replace(".min.js", ".css").replace(".js", ".css");
+            let plugin_css = if std::path::Path::new(&css_path).exists() {
+                let css_content = std::fs::read_to_string(&css_path)
+                    .with_context(|| format!("Failed to read print plugin CSS: {}", css_path))?;
+                format!(
+                    r#"
+<style>
+{css}
+</style>"#,
+                    css = css_content
+                )
+            } else {
+                String::new()
+            };
+            (
+                format!(
+                    r#"
+// Print format plugin (custom: {})
+{plugin}"#,
+                    file_path,
+                    plugin = plugin_content
+                ),
+                plugin_css,
+                "\n            printPlugin: new window.PrintFormatPlugin(),",
+            )
+        }
+        None => (String::new(), String::new(), ""),
     };
     let encoded_data = compress_and_encode(json_data)?;
     // Optional presentation config (branding + print-format defaults), emitted as
@@ -247,6 +304,7 @@ pub fn generate_embed_html(
         r#"{COPYRIGHT_COMMENT}
 <style>
 {css}
+{print_plugin_css}
 </style>
 <div id="cosam-calendar-root"><p style="padding:40px 20px;text-align:center">Schedule failed to load. Please enable JavaScript and reload the page.</p></div>
 {config_html}
@@ -265,15 +323,18 @@ pub fn generate_embed_html(
 
 // JSON embed loader
 {json_loader}
+{print_plugin_js}
 
 {bootstrap}
 </script>"#,
         css = sources.css,
+        print_plugin_css = print_plugin_css,
         js = sources.js,
         bootstrap = init_bootstrap(
             "CosAmCalendar.JsonEmbedLoader()",
             style_page_line,
-            show_even_grid_switch_line
+            show_even_grid_switch_line,
+            &print_plugin_line
         ),
     );
 
@@ -296,6 +357,7 @@ pub fn generate_test_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<String> {
     let embed_block = generate_embed_html(
         json_data,
@@ -304,6 +366,7 @@ pub fn generate_test_html(
         false,
         style_page,
         show_even_grid_switch,
+        print_plugin,
     )?;
 
     let raw = sources
@@ -331,6 +394,7 @@ pub fn generate_embed_html_widget_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n    stylePageBody: true,",
@@ -341,6 +405,55 @@ pub fn generate_embed_html_widget_html(
         Some(true) => "\n    showEvenGridSwitch: true,",
         Some(false) => "\n    showEvenGridSwitch: false,",
         None => "",
+    };
+    let (print_plugin_js, print_plugin_css, print_plugin_line) = match print_plugin {
+        Some("advanced") => (
+            format!(
+                r#"
+// Print format plugin (advanced)
+{plugin}"#,
+                plugin = BUILTIN_PRINT_FORMAT_ADVANCED
+            ),
+            format!(
+                r#"
+<style>
+{css}
+</style>"#,
+                css = BUILTIN_PRINT_FORMAT_ADVANCED_CSS
+            ),
+            "\n    printPlugin: new window.PrintFormatPlugin(),",
+        ),
+        Some(file_path) => {
+            let plugin_content = std::fs::read_to_string(file_path)
+                .with_context(|| format!("Failed to read print plugin file: {}", file_path))?;
+            // Derive CSS path by replacing .js or .min.js with .css
+            let css_path = file_path.replace(".min.js", ".css").replace(".js", ".css");
+            let plugin_css = if std::path::Path::new(&css_path).exists() {
+                let css_content = std::fs::read_to_string(&css_path)
+                    .with_context(|| format!("Failed to read print plugin CSS: {}", css_path))?;
+                format!(
+                    r#"
+<style>
+{css}
+</style>"#,
+                    css = css_content
+                )
+            } else {
+                String::new()
+            };
+            (
+                format!(
+                    r#"
+// Print format plugin (custom: {})
+{plugin}"#,
+                    file_path,
+                    plugin = plugin_content
+                ),
+                plugin_css,
+                "\n    printPlugin: new window.PrintFormatPlugin(),",
+            )
+        }
+        None => (String::new(), String::new(), ""),
     };
     let schedule_html = static_html::generate_static_schedule_html(export)?;
     // Optional presentation config (branding + print-format defaults), emitted as
@@ -355,6 +468,7 @@ pub fn generate_embed_html_widget_html(
         r#"{COPYRIGHT_COMMENT}
 <style>
 {css}
+{print_plugin_css}
 </style>
 <div id="cosam-calendar-root"></div>
 {config_html}
@@ -371,15 +485,18 @@ pub fn generate_embed_html_widget_html(
 
 // HTML embed loader
 {html_loader}
+{print_plugin_js}
 
 {bootstrap}
 </script>"#,
         css = sources.css,
+        print_plugin_css = print_plugin_css,
         js = sources.js,
         bootstrap = init_bootstrap(
             "CosAmCalendar.HtmlEmbedLoader()",
             style_page_line,
-            show_even_grid_switch_line
+            show_even_grid_switch_line,
+            &print_plugin_line
         ),
     );
 
@@ -401,6 +518,7 @@ pub fn generate_test_html_widget_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<String> {
     let embed_block = generate_embed_html_widget_html(
         export,
@@ -409,6 +527,7 @@ pub fn generate_test_html_widget_html(
         false,
         style_page,
         show_even_grid_switch,
+        print_plugin,
     )?;
 
     let raw = sources
@@ -455,6 +574,7 @@ fn resident_bootstrap(
     loader_expr: &str,
     style_page_line: &str,
     show_even_grid_switch_line: &str,
+    print_plugin_line: &str,
     ready_expr: &str,
 ) -> String {
     format!(
@@ -477,7 +597,7 @@ fn resident_bootstrap(
         el.setAttribute('data-cosam-mounted', '1');
         CosAmCalendar.init({{
             el: el,
-            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}{show_even_grid_switch_line}
+            loader: {loader_expr},{STICKY_OFFSET_LINE}{style_page_line}{show_even_grid_switch_line}{print_plugin_line}
         }});
     }}
     // Debounce: let an in-flight content insertion settle, then try to mount.
@@ -518,6 +638,7 @@ pub fn generate_embed_head_widget_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n            stylePageBody: true,",
@@ -529,6 +650,55 @@ pub fn generate_embed_head_widget_html(
         Some(false) => "\n            showEvenGridSwitch: false,",
         None => "",
     };
+    let (print_plugin_js, print_plugin_css, print_plugin_line) = match print_plugin {
+        Some("advanced") => (
+            format!(
+                r#"
+// Print format plugin (advanced)
+{plugin}"#,
+                plugin = BUILTIN_PRINT_FORMAT_ADVANCED
+            ),
+            format!(
+                r#"
+<style>
+{css}
+</style>"#,
+                css = BUILTIN_PRINT_FORMAT_ADVANCED_CSS
+            ),
+            "\n            printPlugin: new window.PrintFormatPlugin(),",
+        ),
+        Some(file_path) => {
+            let plugin_content = std::fs::read_to_string(file_path)
+                .with_context(|| format!("Failed to read print plugin file: {}", file_path))?;
+            // Derive CSS path by replacing .js or .min.js with .css
+            let css_path = file_path.replace(".min.js", ".css").replace(".js", ".css");
+            let plugin_css = if std::path::Path::new(&css_path).exists() {
+                let css_content = std::fs::read_to_string(&css_path)
+                    .with_context(|| format!("Failed to read print plugin CSS: {}", css_path))?;
+                format!(
+                    r#"
+<style>
+{css}
+</style>"#,
+                    css = css_content
+                )
+            } else {
+                String::new()
+            };
+            (
+                format!(
+                    r#"
+// Print format plugin (custom: {})
+{plugin}"#,
+                    file_path,
+                    plugin = plugin_content
+                ),
+                plugin_css,
+                "\n            printPlugin: new window.PrintFormatPlugin(),",
+            )
+        }
+        None => (String::new(), String::new(), ""),
+    };
     let config_html = if let Some(cfg) = config {
         static_html::generate_config_html(cfg)?
     } else {
@@ -539,6 +709,7 @@ pub fn generate_embed_head_widget_html(
         r#"{COPYRIGHT_COMMENT}
 <style>
 {css}
+{print_plugin_css}
 </style>
 {config_html}
 <script>
@@ -553,15 +724,18 @@ pub fn generate_embed_head_widget_html(
 
 // HTML embed loader
 {html_loader}
+{print_plugin_js}
 
 {bootstrap}
 </script>"#,
         css = sources.css,
+        print_plugin_css = print_plugin_css,
         js = sources.js,
         bootstrap = resident_bootstrap(
             "CosAmCalendar.HtmlEmbedLoader()",
             style_page_line,
             show_even_grid_switch_line,
+            &print_plugin_line,
             // Panels are separate <article> elements inserted after the data
             // script; wait for at least one so we never mount an empty schedule.
             "!!document.querySelector('.cosam-static-schedule article.cosam-panel')",
@@ -601,6 +775,7 @@ pub fn generate_embed_head_json(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n            stylePageBody: true,",
@@ -611,6 +786,55 @@ pub fn generate_embed_head_json(
         Some(true) => "\n            showEvenGridSwitch: true,",
         Some(false) => "\n            showEvenGridSwitch: false,",
         None => "",
+    };
+    let (print_plugin_js, print_plugin_css, print_plugin_line) = match print_plugin {
+        Some("advanced") => (
+            format!(
+                r#"
+// Print format plugin (advanced)
+{plugin}"#,
+                plugin = BUILTIN_PRINT_FORMAT_ADVANCED
+            ),
+            format!(
+                r#"
+<style>
+{css}
+</style>"#,
+                css = BUILTIN_PRINT_FORMAT_ADVANCED_CSS
+            ),
+            "\n            printPlugin: new window.PrintFormatPlugin(),",
+        ),
+        Some(file_path) => {
+            let plugin_content = std::fs::read_to_string(file_path)
+                .with_context(|| format!("Failed to read print plugin file: {}", file_path))?;
+            // Derive CSS path by replacing .js or .min.js with .css
+            let css_path = file_path.replace(".min.js", ".css").replace(".js", ".css");
+            let plugin_css = if std::path::Path::new(&css_path).exists() {
+                let css_content = std::fs::read_to_string(&css_path)
+                    .with_context(|| format!("Failed to read print plugin CSS: {}", css_path))?;
+                format!(
+                    r#"
+<style>
+{css}
+</style>"#,
+                    css = css_content
+                )
+            } else {
+                String::new()
+            };
+            (
+                format!(
+                    r#"
+// Print format plugin (custom: {})
+{plugin}"#,
+                    file_path,
+                    plugin = plugin_content
+                ),
+                plugin_css,
+                "\n            printPlugin: new window.PrintFormatPlugin(),",
+            )
+        }
+        None => (String::new(), String::new(), ""),
     };
     // Presentation config (branding + print-format defaults) ships in the head
     // engine so the resident widget has it before page content arrives.
@@ -623,6 +847,7 @@ pub fn generate_embed_head_json(
         r#"{COPYRIGHT_COMMENT}
 <style>
 {css}
+{print_plugin_css}
 </style>
 {config_html}
 <script>
@@ -637,6 +862,7 @@ pub fn generate_embed_head_json(
 
 // JSON embed loader
 {json_loader}
+{print_plugin_js}
 
 {bootstrap}
 </script>"#,
@@ -646,6 +872,7 @@ pub fn generate_embed_head_json(
             "CosAmCalendar.JsonEmbedLoader()",
             style_page_line,
             show_even_grid_switch_line,
+            &print_plugin_line,
             // All data (including panels) lives in the single base64 script tag.
             "!!(document.getElementById('cosam-schedule-data') && document.getElementById('cosam-schedule-data').textContent.trim())",
         ),
@@ -686,6 +913,7 @@ pub fn write_embed_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<()> {
     let html = generate_embed_html(
         json_data,
@@ -694,6 +922,7 @@ pub fn write_embed_html(
         minified,
         style_page,
         show_even_grid_switch,
+        print_plugin,
     )?;
     write_html_file(path, &html, "embed HTML")
 }
@@ -707,6 +936,7 @@ pub fn write_test_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<()> {
     let html = generate_test_html(
         json_data,
@@ -716,6 +946,7 @@ pub fn write_test_html(
         minified,
         style_page,
         show_even_grid_switch,
+        print_plugin,
     )?;
     write_html_file(path, &html, "test HTML")
 }
@@ -728,6 +959,7 @@ pub fn write_embed_html_widget_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<()> {
     let html = generate_embed_html_widget_html(
         export,
@@ -736,6 +968,7 @@ pub fn write_embed_html_widget_html(
         minified,
         style_page,
         show_even_grid_switch,
+        print_plugin,
     )?;
     write_html_file(path, &html, "embed HTML (widget-html)")
 }
@@ -749,6 +982,7 @@ pub fn write_test_html_widget_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<()> {
     let html = generate_test_html_widget_html(
         export,
@@ -758,6 +992,7 @@ pub fn write_test_html_widget_html(
         minified,
         style_page,
         show_even_grid_switch,
+        print_plugin,
     )?;
     write_html_file(path, &html, "test HTML (widget-html)")
 }
@@ -769,6 +1004,7 @@ pub fn write_embed_head_widget_html(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<()> {
     let html = generate_embed_head_widget_html(
         config,
@@ -776,6 +1012,7 @@ pub fn write_embed_head_widget_html(
         minified,
         style_page,
         show_even_grid_switch,
+        print_plugin,
     )?;
     write_html_file(path, &html, "embed head engine (widget-html)")
 }
@@ -796,9 +1033,16 @@ pub fn write_embed_head_json(
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<&str>,
 ) -> Result<()> {
-    let html =
-        generate_embed_head_json(config, sources, minified, style_page, show_even_grid_switch)?;
+    let html = generate_embed_head_json(
+        config,
+        sources,
+        minified,
+        style_page,
+        show_even_grid_switch,
+        print_plugin,
+    )?;
     write_html_file(path, &html, "embed head engine (json)")
 }
 

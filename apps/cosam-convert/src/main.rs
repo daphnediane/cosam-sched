@@ -27,7 +27,6 @@ mod conflicts;
 mod embed;
 mod layout_config;
 mod static_html;
-#[cfg(feature = "layout")]
 mod widget_config;
 
 // ── Input type tracking ───────────────────────────────────────────────────────
@@ -117,6 +116,7 @@ struct OutputSettings {
     minified: bool,
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
+    print_plugin: Option<String>,
     title: String,
     private_export: bool,
     embed_as_html: bool,
@@ -145,6 +145,7 @@ impl Default for OutputSettings {
             minified: true,
             style_page: None,
             show_even_grid_switch: None,
+            print_plugin: None,
             title: String::new(),
             private_export: false,
             embed_as_html: true,
@@ -641,6 +642,16 @@ fn parse_args() -> Result<CliArgs> {
                 }
                 current_settings.style_page = Some(false);
             }
+            "--print-plugin" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --print-plugin");
+                }
+                current_settings.print_plugin = Some(arguments[index].clone());
+            }
             "--show-even-grid-switch" => {
                 if first_setting_index.is_none() {
                     first_setting_index = Some(index);
@@ -761,6 +772,8 @@ fn print_usage() {
          \x20 --embed-as-html                      Embed schedule as widget-html semantic HTML (default)\n\
          \x20 --style-page                         Set stylePageBody: true in widget init\n\
          \x20 --no-style-page                      Set stylePageBody: false in widget init\n\
+         \x20 --print-plugin <name|file>          Print plugin: 'advanced' for built-in, or path to custom JS\n\
+         \x20                                      Default: built-in simple print (no plugin)\n\
          \x20 --public                             Exclude private panels, timeline, and uncredited presenters in export\n\
          \x20 --private                            Include private panels, timeline, and uncredited presenters in export\n\
          \n\
@@ -1064,21 +1077,22 @@ fn main() {
                 // Build the presentation config (branding + print formats) so the
                 // widget's print formats can match the printed house style.
                 let config: Option<ScheduleConfig> = {
-                    #[cfg(feature = "layout")]
-                    {
-                        let brand =
-                            brand_bridge::load_widget_brand(job.settings.brand_config.as_deref());
-                        let print_formats = widget_config::load_print_formats(None);
-                        Some(ScheduleConfig {
-                            version: 1,
-                            brand,
-                            print_formats,
-                        })
-                    }
-                    #[cfg(not(feature = "layout"))]
-                    {
-                        None
-                    }
+                    let brand = {
+                        #[cfg(feature = "layout")]
+                        {
+                            brand_bridge::load_widget_brand(job.settings.brand_config.as_deref())
+                        }
+                        #[cfg(not(feature = "layout"))]
+                        {
+                            None
+                        }
+                    };
+                    let print_formats = widget_config::load_print_formats(None);
+                    Some(ScheduleConfig {
+                        version: 1,
+                        brand,
+                        print_formats,
+                    })
                 };
 
                 if job.settings.embed_as_html {
@@ -1091,6 +1105,7 @@ fn main() {
                             job.settings.minified,
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
+                            job.settings.print_plugin.as_deref(),
                         ),
                         OutputType::ExportEmbedHead => embed::write_embed_head_widget_html(
                             &job.path,
@@ -1099,6 +1114,7 @@ fn main() {
                             job.settings.minified,
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
+                            job.settings.print_plugin.as_deref(),
                         ),
                         OutputType::ExportEmbedBody => embed::write_embed_body_widget_html(
                             &job.path,
@@ -1114,6 +1130,7 @@ fn main() {
                             job.settings.minified,
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
+                            job.settings.print_plugin.as_deref(),
                         ),
                         _ => unreachable!(),
                     }
@@ -1132,6 +1149,7 @@ fn main() {
                             job.settings.minified,
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
+                            job.settings.print_plugin.as_deref(),
                         ),
                         OutputType::ExportEmbedHead => embed::write_embed_head_json(
                             &job.path,
@@ -1140,6 +1158,7 @@ fn main() {
                             job.settings.minified,
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
+                            job.settings.print_plugin.as_deref(),
                         ),
                         OutputType::ExportEmbedBody => embed::write_embed_body_json(
                             &job.path,
@@ -1155,6 +1174,7 @@ fn main() {
                             job.settings.minified,
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
+                            job.settings.print_plugin.as_deref(),
                         ),
                         _ => unreachable!(),
                     }
