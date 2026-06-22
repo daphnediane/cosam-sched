@@ -312,12 +312,7 @@ fn build_header(brand: &BrandConfig, config: &LayoutConfig) -> String {
         banner::page_header_running_split(brand, logo, &running_field("left"), &right)
     } else if let Some(text) = config.header_text.as_deref() {
         // header_text literal on the left, running section label on the right.
-        banner::page_header_running_split(
-            brand,
-            logo,
-            &format!("[{}]", escape_literal(text)),
-            &right,
-        )
+        banner::page_header_running_split(brand, logo, &escape_literal(text), &right)
     } else {
         // Logo (if any) left, running section label right.
         banner::page_header_running(brand, logo, &right)
