@@ -27,6 +27,11 @@
 #   grid_font_pt   = "8pt"      # override grid event text size
 #   logo           = "brand"    # logo alias/filename from [logos]; "none" suppresses logo
 #   banner_text_pt = "18pt"     # override banner text size (default: 28pt)
+#   fit_grid       = true       # fit a full-page grid onto one page (compress +
+#                               #   condense text). Default: on for grid_only, off otherwise.
+#   micro          = "..."      # micro font family for small text (overrides brand);
+#                               #   "none" disables the small-size substitution for this job
+#   micro_max_pt   = 8.0        # size (pt) below which text switches to the micro font
 #
 # Style keys (colors accept hex "#f2f2f2", "luma(95%)", or names like "white"):
 #   page_fill       = "luma(95%)"  # page background tint (default: white)

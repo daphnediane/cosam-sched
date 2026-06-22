@@ -152,9 +152,15 @@ impl GridLayout {
         let win_start_epoch: Option<i64> = window_start;
         let win_end_epoch: Option<i64> = window_end;
 
-        // Collect slot epochs from all panels (start + end, minute-aligned).
-        let mut slot_set: std::collections::HashSet<i64> = panels
+        // Collect slot epochs from panels that actually render: regular events
+        // with a room column, plus breaks (which span col 0). A roomless,
+        // non-break panel — e.g. a private "Lunch" hold with no room — produces
+        // no cell, so it must not extend the time axis with an empty row.
+        let renders_cell = |p: &Panel| p.room_ids.iter().any(|r| room_order.contains(r));
+        let mut slot_set: std::collections::HashSet<i64> = regular
             .iter()
+            .filter(|p| renders_cell(p))
+            .chain(breaks.iter())
             .flat_map(|p| {
                 let mut eps = vec![];
                 if let Some(e) = p.start_epoch {
@@ -178,7 +184,7 @@ impl GridLayout {
         // Even-slot filling: GCD of local minute-of-hour for regular events.
         if fill_even {
             let unit_secs = grid_unit_secs(&regular, tz_offset_minutes, dst_transition);
-            for panel in &regular {
+            for panel in regular.iter().filter(|p| renders_cell(p)) {
                 if let (Some(se), Some(ee)) = (panel.start_epoch, panel.end_epoch) {
                     let mut s = slot_epoch(se);
                     let end = slot_epoch(ee);

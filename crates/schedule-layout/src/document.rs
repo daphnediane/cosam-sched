@@ -157,6 +157,12 @@ pub fn generate(
             doc.push_str(&section_marker(&section.left_label, &section.right_label));
         }
 
+        // Whether to fit the grid to one page (compress + condense). Defaults to
+        // on for full-page grids, off otherwise; a job may override either way.
+        let grid_fit = config
+            .fit_grid
+            .unwrap_or(matches!(content, ContentMode::GridOnly { .. }));
+
         match content {
             ContentMode::GridOnly { .. } => {
                 doc.push_str(&render_grid(
@@ -164,6 +170,7 @@ pub fn generate(
                     data,
                     color_mode,
                     empty_grid_fill.as_deref(),
+                    grid_fit,
                 ));
             }
             ContentMode::Both { .. } => {
@@ -181,6 +188,7 @@ pub fn generate(
                     data,
                     color_mode,
                     empty_grid_fill.as_deref(),
+                    grid_fit,
                 ));
                 doc.push_str("])\n");
 
@@ -226,17 +234,25 @@ pub fn generate(
 }
 
 /// Render the schedule grid for a section, applying both highlight kinds.
+///
+/// When `fit_page` is set (full-page `GridOnly` content) the grid is capped to
+/// the page body height so its `1fr` rows compress to fit a single page — a
+/// full-day grid would otherwise run off the bottom on smaller paper. The
+/// side-by-side `Both` layout passes `false` so the grid keeps its natural
+/// height beside the description columns.
 fn render_grid(
     section: &Section,
     data: &ScheduleData,
     color_mode: ColorMode,
     empty_fill: Option<&str>,
+    fit_page: bool,
 ) -> String {
     // Grid font sizes are global `#let`s from the preamble (`fonts::typst_lets`).
     let mut cfg = GridRenderConfig::full_page("", section.highlight_room);
     cfg.corner_label = section.corner_label.clone();
     cfg.highlight_panel_ids = section.highlight_panel_ids.clone();
     cfg.empty_fill = empty_fill.map(str::to_string);
+    cfg.fit_to_page = fit_page;
     let layout = GridLayout::compute(
         &section.grid_panels,
         data,

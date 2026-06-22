@@ -40,6 +40,11 @@ const DESC_SECONDARY_SCALE: f64 = 0.9;
 /// Floor for the description secondary text size, in points.
 const DESC_MIN_SECONDARY_PT: f64 = 7.0;
 
+// --- Micro font ---
+/// Default size threshold (points): text smaller than this switches to the
+/// brand's micro font (see [`crate::brand::BrandFonts::micro`]) when one is set.
+pub const MICRO_MAX_PT: f64 = 8.0;
+
 // --- Banner / footer ---
 /// Banner label text size (points).
 pub const BANNER_TEXT_SIZE_PT: f64 = 28.0;
@@ -50,6 +55,22 @@ pub const FOOTER_TEXT_SIZE_PT: f64 = 8.0;
 /// (credits, the panel-list time/room text, "(continued)" tags). Emitted by
 /// [`typst_lets`] when panel text is drawn; generators reference it by name.
 pub const DESC_SECONDARY_SIZE_VAR: &str = "_desc-secondary-size";
+
+/// Resolve the effective micro font family for a job: the layout config's
+/// [`micro`](crate::config::LayoutConfig::micro) override wins over the brand's
+/// [`micro`](crate::brand::BrandFonts::micro), and a job value of `"none"`
+/// disables the substitution entirely. `None` means no micro font is active, so
+/// neither the `_micro-*` `#let`s nor the preamble show rule are emitted.
+pub(crate) fn effective_micro_family<'a>(
+    config: &'a LayoutConfig,
+    brand: &'a BrandConfig,
+) -> Option<&'a str> {
+    match config.micro.as_deref() {
+        Some(m) if m.eq_ignore_ascii_case("none") => None,
+        Some(m) => Some(m),
+        None => brand.fonts.micro(),
+    }
+}
 
 /// Build a Typst `font:` argument fragment with optional style and weight.
 ///
@@ -157,6 +178,27 @@ pub(crate) fn typst_lets(config: &LayoutConfig, brand: &BrandConfig) -> String {
             Some(brand.fonts.banner_weight_or_default()),
         ),
     ));
+
+    // Micro font (small-size substitute) — only when one resolves for this job.
+    // The preamble's `#show text` rule (see `typst_gen::preamble`) swaps to this
+    // family for any text below `_micro-max`. The per-job layout config overrides
+    // the brand for family/style/weight/threshold.
+    if let Some(micro) = effective_micro_family(config, brand) {
+        let style = config
+            .micro_style
+            .as_deref()
+            .or_else(|| brand.fonts.micro_style());
+        let weight = config
+            .micro_weight
+            .as_deref()
+            .or_else(|| brand.fonts.micro_weight());
+        let max = config
+            .micro_max_pt
+            .or(brand.fonts.micro_max_pt)
+            .unwrap_or(MICRO_MAX_PT);
+        out.push_str(&format!("#let _micro-font = {}\n", font_dict(micro, style, weight)));
+        out.push_str(&format!("#let _micro-max = {max:.1}pt\n"));
+    }
 
     // Document base size and banner/footer sizes (always present).
     out.push_str(&format!(

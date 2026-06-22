@@ -229,6 +229,19 @@ pub struct JobConfig {
     /// Override the banner text size (e.g. `"18pt"`). Defaults to 28 pt when unset.
     /// Useful for postcards or jobs with long presenter names.
     pub banner_text_pt: Option<String>,
+    /// Micro font family override (falls back to the brand's `micro`).
+    /// `"none"` disables the small-size substitution for this job.
+    pub micro: Option<String>,
+    /// Micro font style override (falls back to the brand's `micro_style`).
+    pub micro_style: Option<String>,
+    /// Micro font weight override (falls back to the brand's `micro_weight`).
+    pub micro_weight: Option<String>,
+    /// Micro size threshold in points: text below this uses the micro font.
+    /// Falls back to the brand's `micro_max_pt`, then the 8 pt default.
+    pub micro_max_pt: Option<f64>,
+    /// Fit a full-page schedule grid onto one page, condensing text-heavy cells
+    /// when needed. Defaults to on for grid-only content, off otherwise.
+    pub fit_grid: Option<bool>,
 }
 
 // ── Preset resolution ─────────────────────────────────────────────────────────
@@ -313,6 +326,21 @@ impl JobConfig {
         }
         if other.banner_text_pt.is_some() {
             self.banner_text_pt = other.banner_text_pt.clone();
+        }
+        if other.micro.is_some() {
+            self.micro = other.micro.clone();
+        }
+        if other.micro_style.is_some() {
+            self.micro_style = other.micro_style.clone();
+        }
+        if other.micro_weight.is_some() {
+            self.micro_weight = other.micro_weight.clone();
+        }
+        if other.micro_max_pt.is_some() {
+            self.micro_max_pt = other.micro_max_pt;
+        }
+        if other.fit_grid.is_some() {
+            self.fit_grid = other.fit_grid;
         }
     }
 
@@ -660,6 +688,11 @@ impl JobConfig {
             // show the brand logo.
             logo: Some(self.logo.clone().unwrap_or_else(|| "brand".to_string())),
             banner_text_pt: self.banner_text_pt.clone(),
+            micro: self.micro.clone(),
+            micro_style: self.micro_style.clone(),
+            micro_weight: self.micro_weight.clone(),
+            micro_max_pt: self.micro_max_pt,
+            fit_grid: self.fit_grid,
         };
         (config, self.stem.clone())
     }
@@ -730,6 +763,17 @@ pub fn apply_layout_arg(job: &mut JobConfig, key: &str, value: Option<&str>) -> 
         "brand_config" => job.brand_config = Some(str_val()?),
         "logo" => job.logo = Some(str_val()?),
         "banner_text_pt" => job.banner_text_pt = Some(str_val()?),
+        "micro" => job.micro = Some(str_val()?),
+        "micro_style" => job.micro_style = Some(str_val()?),
+        "micro_weight" => job.micro_weight = Some(str_val()?),
+        "micro_max_pt" => {
+            job.micro_max_pt = Some(
+                str_val()?
+                    .parse::<f64>()
+                    .map_err(|_| anyhow::anyhow!("--layout.micro_max_pt must be a number"))?,
+            )
+        }
+        "fit_grid" => job.fit_grid = Some(parse_layout_bool(key, value)?),
         other => anyhow::bail!("unknown --layout.{other} key"),
     }
     Ok(())

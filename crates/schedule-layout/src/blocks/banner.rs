@@ -101,11 +101,12 @@ pub(crate) fn page_header_running_split(
     right_content: &str,
 ) -> String {
     let _ = brand;
-    let wrap = |content: &str| {
-        format!("#text(fill: white, size: _banner-text-size, .._banner-font)[#upper[{content}]]")
-    };
-    let left = wrap(left_content);
-    let right = wrap(right_content);
+    // Auto-fit both slots: a long entity label (e.g. a guest's name) would
+    // otherwise overrun its 1fr cell at the nominal banner size and collide with
+    // the centered logo. `fit_banner_label` shrinks each label to stay on one
+    // line within the width its cell offers (resolved per page via `layout`).
+    let left = fit_banner_label(left_content);
+    let right = fit_banner_label(right_content);
 
     let inner = match logo_path {
         Some(p) => format!(

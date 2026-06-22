@@ -45,6 +45,15 @@ white = "#FFFFFF"
 #                              #   numeric-weight mapping; Typst/PDF keeps using body_weight)
 # font_dir = "brand/fonts"     # directory with TTF/OTF files, relative to this file
 #
+# ── Micro font (small-size substitute) ───────────────────────────────────────
+# A typeface designed to stay legible at small point sizes. When set, any text
+# rendered below `micro_max_pt` (default 8pt) automatically switches to this
+# family, preserving the surrounding weight/style. Typst/PDF output only.
+# micro = "FreightMicro Pro"
+# micro_max_pt = 8.0           # Optional: threshold in points (default 8)
+# micro_style = "..."          # Optional: usually omit so the text's style is kept
+# micro_weight = "..."         # Optional: usually omit so the text's weight is kept
+#
 # ── Web-equivalent fonts (widget print) ──────────────────────────────────────
 # The print/IDML fonts above are not available in a browser, so each role may
 # declare a web substitute the widget's print formats use. `{role}_web` is the

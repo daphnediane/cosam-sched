@@ -231,6 +231,22 @@ pub struct BrandFonts {
     /// used verbatim as the IDML `FontStyle`, overriding the numeric-weight
     /// mapping. Has no effect on Typst/PDF output.
     pub body_idml_style: Option<String>,
+    /// Micro font family: a typeface designed to stay legible at small point
+    /// sizes (e.g. `"FreightMicro Pro"`). When set, any text rendered below
+    /// [`micro_max_pt`](Self::micro_max_pt) automatically switches to this
+    /// family, keeping the requested weight/style. Typst/PDF output only;
+    /// absent means no substitution.
+    pub micro: Option<String>,
+    /// Micro font style (`"normal"`, `"italic"`, `"oblique"`). Usually left
+    /// unset so the substitution preserves the surrounding text's style.
+    pub micro_style: Option<String>,
+    /// Micro font weight. Usually left unset so the substitution preserves the
+    /// surrounding text's weight (e.g. bold titles stay bold in micro).
+    pub micro_weight: Option<String>,
+    /// Size threshold in points: text smaller than this switches to the
+    /// [`micro`](Self::micro) family. Defaults to [`crate::fonts::MICRO_MAX_PT`]
+    /// (8pt) when the micro family is set.
+    pub micro_max_pt: Option<f64>,
     /// Path to a directory containing font files (TTF/OTF).
     pub font_dir: Option<PathBuf>,
 
@@ -365,6 +381,21 @@ impl BrandFonts {
     /// Explicit InDesign style name for the body font, if specified.
     pub fn body_idml_style(&self) -> Option<&str> {
         self.body_idml_style.as_deref()
+    }
+
+    /// Micro font family, if a small-size substitute is configured.
+    pub fn micro(&self) -> Option<&str> {
+        self.micro.as_deref()
+    }
+
+    /// Micro font style, if specified.
+    pub fn micro_style(&self) -> Option<&str> {
+        self.micro_style.as_deref()
+    }
+
+    /// Micro font weight, if specified.
+    pub fn micro_weight(&self) -> Option<&str> {
+        self.micro_weight.as_deref()
     }
 
     /// Resolved web-font substitutes for the widget print path, one per role

@@ -383,6 +383,25 @@ pub struct LayoutConfig {
     /// built-in default ([`crate::fonts::BANNER_TEXT_SIZE_PT`] = 28 pt).
     /// Useful for postcards or jobs with long presenter names.
     pub banner_text_pt: Option<String>,
+    /// Per-job micro font family, overriding the brand's
+    /// [`micro`](crate::brand::BrandFonts::micro). `Some("none")` disables the
+    /// micro substitution for this job even when the brand sets one; `None`
+    /// inherits the brand value.
+    pub micro: Option<String>,
+    /// Per-job micro font style, overriding the brand's `micro_style`.
+    pub micro_style: Option<String>,
+    /// Per-job micro font weight, overriding the brand's `micro_weight`.
+    pub micro_weight: Option<String>,
+    /// Per-job micro size threshold in points: text below this switches to the
+    /// micro font. Overrides the brand's `micro_max_pt`; `None` inherits it
+    /// (then the built-in [`crate::fonts::MICRO_MAX_PT`] default).
+    pub micro_max_pt: Option<f64>,
+    /// Whether a full-page schedule grid is fit onto a single page: the grid is
+    /// compressed (and text-heavy cells condensed to fit) only when it would
+    /// overflow. `None` uses the per-content default — on for [`ContentMode::GridOnly`],
+    /// off otherwise. Set `Some(false)` to let a grid flow naturally (and
+    /// paginate) instead, or `Some(true)` to force fitting.
+    pub fit_grid: Option<bool>,
 }
 
 impl LayoutConfig {

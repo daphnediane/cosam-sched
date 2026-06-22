@@ -62,6 +62,22 @@ impl PanelColor {
     }
 }
 
+/// Convert a hex color to its BT.601 grayscale equivalent (`#LLLLLL`).
+///
+/// Returns the input unchanged when it cannot be parsed, so callers can apply it
+/// unconditionally. Used to desaturate the brand colors in [`ColorMode::Bw`] so
+/// the banner, header row, and time column match the grayscale panel accents.
+pub fn to_grayscale_hex(hex: &str) -> String {
+    match parse_hex_color(hex) {
+        Some((r, g, b)) => {
+            let luma =
+                (LUMA_R * r as f64 + LUMA_G * g as f64 + LUMA_B * b as f64).round() as u8;
+            format!("#{luma:02X}{luma:02X}{luma:02X}")
+        }
+        None => hex.to_string(),
+    }
+}
+
 /// Parse a `#RRGGBB` or `#RGB` hex color string into `(r, g, b)`.
 fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8)> {
     let hex = hex.trim_start_matches('#');
@@ -143,6 +159,14 @@ mod tests {
         };
         assert!(PanelColor::resolve(&c, ColorMode::Color).is_none());
         assert!(PanelColor::resolve(&c, ColorMode::Bw).is_none());
+    }
+
+    #[test]
+    fn test_to_grayscale_hex() {
+        // Brand blue #00BCDD → luma 0.299*0 + 0.587*188 + 0.114*221 ≈ 136 = 0x88.
+        assert_eq!(to_grayscale_hex("#00BCDD"), "#888888");
+        // Unparseable input is returned unchanged.
+        assert_eq!(to_grayscale_hex("luma(95%)"), "luma(95%)");
     }
 
     #[test]

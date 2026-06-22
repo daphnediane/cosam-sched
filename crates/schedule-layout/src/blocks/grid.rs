@@ -32,9 +32,14 @@ pub(crate) struct GridRenderConfig {
     /// blank corner). When set, the time column widens to fit the larger of
     /// this label and `"Midnight"`.
     pub corner_label: String,
-    /// Maximum height for the grid block (e.g. `"8.5in"`).
-    /// If `None`, the grid flows naturally without a height constraint.
-    pub max_height: Option<String>,
+    /// Fit the grid to a single page. When set, the grid is measured at the page
+    /// width and, *only if it would overflow*, compressed into a page-height
+    /// block (its equal `1fr` rows shrinking to fit); a grid that already fits
+    /// keeps its natural, top-aligned row heights rather than being stretched.
+    /// Text-heavy cells additionally reduce their font (reflowing to use the full
+    /// width) to fit the (possibly compressed) row — see [`render_event_cell`].
+    /// `false` flows naturally.
+    pub fit_to_page: bool,
     /// Time column width (e.g. `"0.55in"` for compact, `"0.7in"` for full).
     pub time_col_width: String,
     /// Maximum characters before credits are truncated. `0` = no truncation.
@@ -98,7 +103,7 @@ impl GridRenderConfig {
             highlight_panel_ids: None,
             day_label: day_label.to_string(),
             corner_label: String::new(),
-            max_height: None,
+            fit_to_page: false,
             time_col_width: String::new(),
             credits_max_chars: 0,
             show_hotel_room: true,
@@ -153,9 +158,11 @@ pub(crate) fn render_schedule_grid(
         .max()
         .unwrap_or(n_slots);
 
-    // Optional height-constrained wrapper block
-    if let Some(ref h) = config.max_height {
-        out.push_str(&format!("#block(height: {}, clip: true)[\n", h));
+    // Fit-to-page wrapper: capture the grid as content `_g` so it can be measured
+    // (below) and compressed into a page-height block only when it would overflow.
+    // A grid that already fits is emitted as-is, keeping its natural row heights.
+    if config.fit_to_page {
+        out.push_str("#layout(_p => {\n  let _g = [\n");
     }
 
     // When using measured width, we wrap the entire grid in a `context`
@@ -296,8 +303,15 @@ pub(crate) fn render_schedule_grid(
         out.push_str("}\n"); // close context
     }
 
-    if config.max_height.is_some() {
-        out.push_str("]\n"); // close block
+    if config.fit_to_page {
+        // Measure the grid at the page width; compress into a page-height block
+        // only when it overflows, otherwise render it at its natural height.
+        out.push_str(
+            "  ]\n  \
+             let _m = measure(block(width: _p.width)[#_g])\n  \
+             if _m.height > _p.height { block(height: _p.height, clip: true)[#_g] } else { _g }\n\
+             })\n",
+        );
     }
 
     out
@@ -591,22 +605,58 @@ fn render_event_cell(
         left_stroke
     };
 
-    out.push_str(&format!(
-        "  grid.cell(fill: {fill}{rowspan}{stroke})\
-         [#block(clip: true, width: 100%, height: 100%, inset: _cell_inset, \
-         stroke: (bottom: {rule_pt}pt + luma({rule_luma})))[\
-         {cont_from}\
-         #text(size: _name_size, weight: \"bold\")[{name}]{cost}\n{credits}\n{dur}]],\n",
-        fill = fill,
-        rowspan = rowspan_arg,
-        stroke = trunc_stroke,
-        rule_pt = CELL_RULE_PT,
-        rule_luma = CELL_RULE_LUMA,
+    // The cell's text content (continuation note, title + cost, credits, duration).
+    let content = format!(
+        "{cont_from}\
+         #text(size: _name_size, weight: \"bold\")[{name}]{cost}{credits}{dur}",
         cont_from = cont_from_str,
         name = name,
         cost = cost_suffix,
         credits = credits_str,
         dur = dur_str,
+    );
+
+    // In fit-to-page grids, equal `1fr` rows can be shorter than a text-heavy
+    // cell needs. Rather than geometrically scaling (which would waste the cell's
+    // width and shrink the text far more than necessary), reduce the font size so
+    // the text reflows across the full width and only shrinks as much as the
+    // height demands — the Typst analog of the old HTML grid condensing the font.
+    //
+    // Height falls roughly with the square of the font scale (fewer, shorter
+    // lines), so estimate the scale as `sqrt(avail / needed)` and refine once by
+    // re-measuring. `_mk(_sf)` rebuilds the content with every text size scaled by
+    // `_sf`; cells that already fit keep `_sf = 1`.
+    let body = if config.fit_to_page {
+        let scaled = content
+            .replace("_name_size", "_name_size * _sf")
+            .replace("_secondary_size", "_secondary_size * _sf")
+            .replace("_cost_size", "_cost_size * _sf");
+        format!(
+            "#layout(_c => {{\n      \
+               let _mk = (_sf) => [{scaled}]\n      \
+               let _h1 = measure(block(width: _c.width)[#_mk(1.0)]).height\n      \
+               let _s = if _c.height > 0pt and _h1 > _c.height {{ \
+                 calc.sqrt(_c.height / _h1) }} else {{ 1.0 }}\n      \
+               let _h2 = measure(block(width: _c.width)[#_mk(_s)]).height\n      \
+               let _s = if _c.height > 0pt and _h2 > _c.height {{ \
+                 _s * calc.sqrt(_c.height / _h2) }} else {{ _s }}\n      \
+               block(width: _c.width)[#_mk(_s)]\n    \
+             }})",
+        )
+    } else {
+        content
+    };
+
+    out.push_str(&format!(
+        "  grid.cell(fill: {fill}{rowspan}{stroke})\
+         [#block(clip: true, width: 100%, height: 100%, inset: _cell_inset, \
+         stroke: (bottom: {rule_pt}pt + luma({rule_luma})))[{body}]],\n",
+        fill = fill,
+        rowspan = rowspan_arg,
+        stroke = trunc_stroke,
+        rule_pt = CELL_RULE_PT,
+        rule_luma = CELL_RULE_LUMA,
+        body = body,
     ));
 }
 
@@ -698,7 +748,7 @@ mod tests {
     fn test_grid_render_config_full_page() {
         let cfg = GridRenderConfig::full_page("Friday", None);
         assert_eq!(cfg.day_label, "Friday");
-        assert!(cfg.max_height.is_none());
+        assert!(!cfg.fit_to_page);
         assert_eq!(cfg.credits_max_chars, 0);
     }
 }

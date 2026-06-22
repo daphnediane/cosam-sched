@@ -33,8 +33,18 @@ pub fn escape_typst(s: &str) -> String {
 pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     use crate::config::PaperSize;
 
-    let primary = &brand.colors.primary;
-    let dark_grey = &brand.colors.dark_grey;
+    // In black-and-white mode the brand colors (banner, header row, time column)
+    // are desaturated to grayscale via the same BT.601 luma as the panel accents,
+    // so nothing on the page stays colored.
+    let (primary, dark_grey) = match config.color_mode {
+        crate::color::ColorMode::Bw => (
+            crate::color::to_grayscale_hex(&brand.colors.primary),
+            crate::color::to_grayscale_hex(&brand.colors.dark_grey),
+        ),
+        crate::color::ColorMode::Color => {
+            (brand.colors.primary.clone(), brand.colors.dark_grey.clone())
+        }
+    };
 
     let landscape = config.orientation.is_landscape();
     let page_spec = match config.paper {
@@ -58,17 +68,29 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     let geometry_lets = crate::geometry::typst_lets();
     let font_lets = crate::fonts::typst_lets(config, brand);
 
+    // When a micro font is configured, swap to it for any text below the
+    // threshold. `context text.size` reads the resolved size, so this fires even
+    // for sizes computed at layout time (e.g. the fit-to-page cell scaling).
+    // `_micro-font`/`_micro-max` are emitted by `fonts::typst_lets` only when the
+    // brand sets a micro family, so the rule is gated on the same condition.
+    let micro_rule = if crate::fonts::effective_micro_family(config, brand).is_some() {
+        "#show text: it => context { if text.size < _micro-max { set text(.._micro-font); it } else { it } }\n"
+    } else {
+        ""
+    };
+
     format!(
         r#"{geometry_lets}{font_lets}#set page({page_spec}, margin: (top: _content-top, bottom: _page-edge, left: _page-edge, right: _page-edge), header-ascent: _header-ascent)
 #set text(.._body-font, size: _body-size)
 #show heading: set text(.._heading-font)
-
+{micro_rule}
 #let brand-primary = rgb("{primary}")
 #let brand-dark = rgb("{dark_grey}")
 "#,
         geometry_lets = geometry_lets,
         font_lets = font_lets,
         page_spec = page_spec,
+        micro_rule = micro_rule,
         primary = primary,
         dark_grey = dark_grey,
     )

@@ -169,9 +169,9 @@ impl ViewerState {
             .filter_map(|p| {
                 // Only show panels with a start time on the selected day (or any day).
                 // Times are epoch seconds; resolve to wall-clock in the schedule's zone.
-                let start = p
-                    .start_epoch
-                    .map(|e| schedule_core::value::timezone::epoch_to_local(e, &doc.meta.timezone))?;
+                let start = p.start_epoch.map(|e| {
+                    schedule_core::value::timezone::epoch_to_local(e, &doc.meta.timezone)
+                })?;
                 if let Some(day) = selected_day {
                     if start.date() != day {
                         return None;
@@ -312,7 +312,6 @@ fn collect_days(doc: &ScheduleDoc) -> Vec<NaiveDate> {
     }
     dates.into_iter().collect()
 }
-
 
 fn format_time_range(
     start: Option<chrono::NaiveDateTime>,
