@@ -167,6 +167,12 @@ pub struct CustomTimeSlot {
     /// When absent, the slot runs until the next slot's start time (which may be on a later
     /// day). The last slot in the timeline has no upper bound.
     pub end_time: Option<String>,
+    /// Override for base font size (e.g., "14pt") for this slot's section.
+    /// If None, uses the job's global `base_font_pt` setting.
+    pub base_font_pt: Option<String>,
+    /// Override for grid font size (e.g., "10pt") for this slot's section.
+    /// If None, uses the job's global `grid_font_pt` setting (or base_font_pt).
+    pub grid_font_pt: Option<String>,
 }
 
 /// A named custom timeline consisting of time slots.

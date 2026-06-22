@@ -129,6 +129,12 @@ pub struct CustomTimeSlot {
     /// same week as each occurrence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end: Option<String>,
+    /// Override for base font size (e.g., "14pt") for this slot's section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_font_pt: Option<String>,
+    /// Override for grid font size (e.g., "10pt") for this slot's section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_font_pt: Option<String>,
 }
 
 /// A named custom timeline consisting of time slots.
@@ -548,6 +554,8 @@ fn parse_time_split(
                                 end_time: occ
                                     .end
                                     .map(|e| e.format("%Y-%m-%dT%H:%M:%S").to_string()),
+                                base_font_pt: s.base_font_pt.clone(),
+                                grid_font_pt: s.grid_font_pt.clone(),
                             })
                     })
                     .collect();

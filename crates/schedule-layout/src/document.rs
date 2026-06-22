@@ -59,6 +59,12 @@ struct Section<'a> {
     window_start: Option<i64>,
     /// End of the visible time window for this section (Unix epoch secs), if any.
     window_end: Option<i64>,
+    /// Override for base font size (e.g., "14pt") for this section.
+    /// If None, uses the job's global `base_font_pt` setting.
+    base_font_override: Option<String>,
+    /// Override for grid font size (e.g., "10pt") for this section.
+    /// If None, uses the job's global `grid_font_pt` setting (or base_font_pt).
+    grid_font_override: Option<String>,
 }
 
 /// Generate the unified layout document.
@@ -178,8 +184,60 @@ pub fn generate(
             .fit_grid
             .unwrap_or(matches!(content, ContentMode::GridOnly { .. }));
 
+        // Wrap section content in a block to scope font overrides
+        let has_font_override =
+            section.base_font_override.is_some() || section.grid_font_override.is_some();
+        if has_font_override {
+            doc.push_str("#block[\n");
+            // Override base font size and derived font sizes
+            if let Some(ref base_font) = section.base_font_override {
+                doc.push_str(&format!("#set text(size: {})\n", base_font));
+                // Update derived font sizes for this section
+                let base_value = base_font
+                    .trim_end_matches("pt")
+                    .trim_end_matches("px")
+                    .parse::<f64>()
+                    .unwrap_or(12.0);
+                let desc_secondary = (base_value * 0.85).max(6.0);
+                let grid_value = section.grid_font_override.as_deref().unwrap_or(base_font);
+                let grid_value_num = grid_value
+                    .trim_end_matches("pt")
+                    .trim_end_matches("px")
+                    .parse::<f64>()
+                    .unwrap_or(base_value);
+                let grid_secondary = (grid_value_num * 0.75).max(5.0);
+                doc.push_str(&format!("#let _body-size = {}\n", base_font));
+                doc.push_str(&format!(
+                    "#let _desc-secondary-size = {}pt\n",
+                    desc_secondary
+                ));
+                doc.push_str(&format!("#let _grid-size = {}\n", grid_value));
+                doc.push_str(&format!(
+                    "#let _grid-secondary-size = {}pt\n",
+                    grid_secondary
+                ));
+            } else if let Some(ref grid_font) = section.grid_font_override {
+                // Only grid font override, still need to update grid sizes
+                let grid_value_num = grid_font
+                    .trim_end_matches("pt")
+                    .trim_end_matches("px")
+                    .parse::<f64>()
+                    .unwrap_or(12.0);
+                let grid_secondary = (grid_value_num * 0.75).max(5.0);
+                doc.push_str(&format!("#let _grid-size = {}\n", grid_font));
+                doc.push_str(&format!(
+                    "#let _grid-secondary-size = {}pt\n",
+                    grid_secondary
+                ));
+            }
+        }
+
         match content {
             ContentMode::GridOnly { .. } => {
+                // Apply per-section grid font override if set
+                if let Some(ref grid_font) = section.grid_font_override {
+                    doc.push_str(&format!("#set text(size: {})\n", grid_font));
+                }
                 doc.push_str(&render_grid(
                     section,
                     data,
@@ -193,6 +251,11 @@ pub fn generate(
                     config.effective_columns(config.paper.flyer_columns(config.orientation));
                 let grid_cols = total_cols.div_ceil(2);
                 let grid_pct = grid_cols as f64 / total_cols as f64 * 100.0;
+
+                // Apply per-section grid font override if set
+                if let Some(ref grid_font) = section.grid_font_override {
+                    doc.push_str(&format!("#set text(size: {})\n", grid_font));
+                }
 
                 doc.push_str(&format!(
                     "#place(top + left, box(width: {:.2}%)[\n",
@@ -242,6 +305,11 @@ pub fn generate(
                 ));
                 doc.push_str("]\n");
             }
+        }
+
+        // Close the block if we opened it
+        if has_font_override {
+            doc.push_str("]\n");
         }
     }
 
@@ -369,11 +437,19 @@ fn is_workshop(data: &ScheduleData, panel: &Panel) -> bool {
         .is_some_and(|pt| pt.is_workshop)
 }
 
-/// A labelled slice of panels with an optional visible time window.
+/// A labelled slice of panels with an optional visible time window and font overrides.
 ///
-/// `(label, panels, window_start, window_end)` where the window fields are Unix
-/// epoch seconds used to clamp the grid to the section boundary.
-type TimedSection<'a> = (String, Vec<&'a Panel>, Option<i64>, Option<i64>);
+/// `(label, panels, window_start, window_end, base_font_override, grid_font_override)`
+/// where the window fields are Unix epoch seconds used to clamp the grid to the section
+/// boundary, and the font override fields are optional per-section font size overrides.
+type TimedSection<'a> = (
+    String,
+    Vec<&'a Panel>,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+);
 
 /// Flatten `panels` into time-labeled slices for `time`, using the export's
 /// precomputed day/half-day timelines (epoch ranges + labels).
@@ -410,7 +486,7 @@ fn day_sections<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<TimedSecti
         .iter()
         .filter_map(|span| {
             let ps = by_key.remove(span.date.as_str())?;
-            (!ps.is_empty()).then(|| (span.label.clone(), ps, None, None))
+            (!ps.is_empty()).then(|| (span.label.clone(), ps, None, None, None, None))
         })
         .collect()
 }
@@ -441,14 +517,21 @@ fn half_day_sections<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<Timed
                     .into_iter()
                     .partition(|p| p.start_epoch.is_some_and(|s| s < boundary));
                 if !am_p.is_empty() {
-                    out.push((am.label.clone(), am_p, None, Some(am.end_epoch)));
+                    out.push((am.label.clone(), am_p, None, Some(am.end_epoch), None, None));
                 }
                 if !pm_p.is_empty() {
-                    out.push((pm.label.clone(), pm_p, Some(pm.start_epoch), None));
+                    out.push((
+                        pm.label.clone(),
+                        pm_p,
+                        Some(pm.start_epoch),
+                        None,
+                        None,
+                        None,
+                    ));
                 }
             }
-            [single] => out.push((single.label.clone(), day_panels, None, None)),
-            _ => out.push((day.label.clone(), day_panels, None, None)),
+            [single] => out.push((single.label.clone(), day_panels, None, None, None, None)),
+            _ => out.push((day.label.clone(), day_panels, None, None, None, None)),
         }
     }
     out
@@ -492,7 +575,7 @@ fn split_on_timeline<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<Timed
             .collect();
 
         if day_boundaries.is_empty() {
-            out.push((day.label.clone(), day_panels, None, None));
+            out.push((day.label.clone(), day_panels, None, None, None, None));
             continue;
         }
 
@@ -511,13 +594,24 @@ fn split_on_timeline<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<Timed
 
         // Day-label catch-all first (window [None, first_boundary)), then each
         // boundary in order (window [boundary, next_boundary)).
-        let mut section_keys: Vec<(String, Option<i64>, Option<i64>)> =
-            vec![(day.label.clone(), None, Some(day_boundaries[0].0))];
+        let mut section_keys: Vec<(
+            String,
+            Option<i64>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+        )> = vec![(
+            day.label.clone(),
+            None,
+            Some(day_boundaries[0].0),
+            None,
+            None,
+        )];
         for (i, (bstart, name)) in day_boundaries.iter().enumerate() {
             let key = name.to_string();
             let win_end = day_boundaries.get(i + 1).map(|(next, _)| *next);
-            if !section_keys.iter().any(|(k, _, _)| k == &key) {
-                section_keys.push((key, Some(*bstart), win_end));
+            if !section_keys.iter().any(|(k, _, _, _, _)| k == &key) {
+                section_keys.push((key, Some(*bstart), win_end, None, None));
             }
         }
 
@@ -529,10 +623,10 @@ fn split_on_timeline<'a>(panels: &[&'a Panel], data: &ScheduleData) -> Vec<Timed
                 .push(panel);
         }
 
-        for (key, win_start, win_end) in section_keys {
+        for (key, win_start, win_end, base_font, grid_font) in section_keys {
             if let Some(bucket) = buckets.remove(&key) {
                 if !bucket.is_empty() {
-                    out.push((key, bucket, win_start, win_end));
+                    out.push((key, bucket, win_start, win_end, base_font, grid_font));
                 }
             }
         }
@@ -642,7 +736,7 @@ fn split_on_custom_timeline<'a>(
     if let Some(ref bl) = before_label {
         if let Some(bucket) = buckets.remove(bl.as_str()) {
             if !bucket.is_empty() {
-                out.push((bl.clone(), bucket, None, Some(first_slot_start)));
+                out.push((bl.clone(), bucket, None, Some(first_slot_start), None, None));
             }
         }
     }
@@ -653,7 +747,21 @@ fn split_on_custom_timeline<'a>(
         }
         if let Some(bucket) = buckets.remove(*label) {
             if !bucket.is_empty() {
-                out.push((label.to_string(), bucket, Some(*win_start), *win_end));
+                // Look up font overrides from the custom timeline slot
+                let (base_font, grid_font) = custom_timeline
+                    .slots
+                    .iter()
+                    .find(|s| s.label == *label)
+                    .map(|s| (s.base_font_pt.clone(), s.grid_font_pt.clone()))
+                    .unwrap_or((None, None));
+                out.push((
+                    label.to_string(),
+                    bucket,
+                    Some(*win_start),
+                    *win_end,
+                    base_font,
+                    grid_font,
+                ));
             }
         }
     }
@@ -696,30 +804,36 @@ fn build_sections<'a>(
             corner_label: String::new(),
             window_start: None,
             window_end: None,
+            base_font_override: None,
+            grid_font_override: None,
         }],
 
         (None, Some(time)) => time_sections(&time, panels, data)
             .into_iter()
-            .map(|(label, time_panels, win_start, win_end)| {
-                let grid_panels = if let Some(ws) = win_start {
-                    let mut gp = spanning_into(panels, ws);
-                    gp.extend_from_slice(&time_panels);
-                    gp
-                } else {
-                    time_panels.clone()
-                };
-                Section {
-                    content_panels: time_panels,
-                    grid_panels,
-                    highlight_room: None,
-                    highlight_panel_ids: None,
-                    left_label: String::new(),
-                    right_label: label.clone(),
-                    corner_label: label,
-                    window_start: win_start,
-                    window_end: win_end,
-                }
-            })
+            .map(
+                |(label, time_panels, win_start, win_end, base_font, grid_font)| {
+                    let grid_panels = if let Some(ws) = win_start {
+                        let mut gp = spanning_into(panels, ws);
+                        gp.extend_from_slice(&time_panels);
+                        gp
+                    } else {
+                        time_panels.clone()
+                    };
+                    Section {
+                        content_panels: time_panels,
+                        grid_panels,
+                        highlight_room: None,
+                        highlight_panel_ids: None,
+                        left_label: String::new(),
+                        right_label: label.clone(),
+                        corner_label: label,
+                        window_start: win_start,
+                        window_end: win_end,
+                        base_font_override: base_font,
+                        grid_font_override: grid_font,
+                    }
+                },
+            )
             .collect(),
 
         (Some(SectionSplit::Room), None) => data
@@ -745,6 +859,8 @@ fn build_sections<'a>(
                     corner_label: name,
                     window_start: None,
                     window_end: None,
+                    base_font_override: None,
+                    grid_font_override: None,
                 })
             })
             .collect(),
@@ -756,38 +872,49 @@ fn build_sections<'a>(
                 let name = room_name(room);
                 time_sections(&time, panels, data)
                     .into_iter()
-                    .filter_map(move |(time_label, time_panels, win_start, win_end)| {
-                        let room_panels: Vec<&Panel> = time_panels
-                            .iter()
-                            .copied()
-                            .filter(|p| p.room_ids.contains(&room.uid))
-                            .collect();
-                        if room_panels.is_empty() {
-                            return None;
-                        }
-                        // grid_panels: time section panels + spanning ones for this room.
-                        let grid_panels = if let Some(ws) = win_start {
-                            let mut gp: Vec<&Panel> = spanning_into(panels, ws)
-                                .into_iter()
+                    .filter_map(
+                        move |(
+                            time_label,
+                            time_panels,
+                            win_start,
+                            win_end,
+                            base_font,
+                            grid_font,
+                        )| {
+                            let room_panels: Vec<&Panel> = time_panels
+                                .iter()
+                                .copied()
                                 .filter(|p| p.room_ids.contains(&room.uid))
                                 .collect();
-                            gp.extend_from_slice(&time_panels);
-                            gp
-                        } else {
-                            time_panels.clone()
-                        };
-                        Some(Section {
-                            content_panels: room_panels,
-                            grid_panels,
-                            highlight_room: Some(room.uid),
-                            highlight_panel_ids: None,
-                            left_label: name.clone(),
-                            right_label: time_label.clone(),
-                            corner_label: time_label,
-                            window_start: win_start,
-                            window_end: win_end,
-                        })
-                    })
+                            if room_panels.is_empty() {
+                                return None;
+                            }
+                            // grid_panels: time section panels + spanning ones for this room.
+                            let grid_panels = if let Some(ws) = win_start {
+                                let mut gp: Vec<&Panel> = spanning_into(panels, ws)
+                                    .into_iter()
+                                    .filter(|p| p.room_ids.contains(&room.uid))
+                                    .collect();
+                                gp.extend_from_slice(&time_panels);
+                                gp
+                            } else {
+                                time_panels.clone()
+                            };
+                            Some(Section {
+                                content_panels: room_panels,
+                                grid_panels,
+                                highlight_room: Some(room.uid),
+                                highlight_panel_ids: None,
+                                left_label: name.clone(),
+                                right_label: time_label.clone(),
+                                corner_label: time_label,
+                                window_start: win_start,
+                                window_end: win_end,
+                                base_font_override: base_font,
+                                grid_font_override: grid_font,
+                            })
+                        },
+                    )
                     .collect::<Vec<_>>()
             })
             .collect(),
@@ -815,6 +942,8 @@ fn build_sections<'a>(
                     corner_label: presenter.name.clone(),
                     window_start: None,
                     window_end: None,
+                    base_font_override: None,
+                    grid_font_override: None,
                 })
             })
             .collect(),
@@ -826,39 +955,50 @@ fn build_sections<'a>(
             .flat_map(|presenter| {
                 time_sections(&time, panels, data)
                     .into_iter()
-                    .filter_map(move |(time_label, time_panels, win_start, win_end)| {
-                        let his: Vec<&Panel> = time_panels
-                            .iter()
-                            .copied()
-                            .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
-                            .collect();
-                        if his.is_empty() {
-                            return None;
-                        }
-                        let ids: HashSet<String> = his.iter().map(|p| p.id.clone()).collect();
-                        // grid_panels: time section panels + spanning ones for this presenter.
-                        let grid_panels = if let Some(ws) = win_start {
-                            let mut gp: Vec<&Panel> = spanning_into(panels, ws)
-                                .into_iter()
+                    .filter_map(
+                        move |(
+                            time_label,
+                            time_panels,
+                            win_start,
+                            win_end,
+                            base_font,
+                            grid_font,
+                        )| {
+                            let his: Vec<&Panel> = time_panels
+                                .iter()
+                                .copied()
                                 .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
                                 .collect();
-                            gp.extend_from_slice(&time_panels);
-                            gp
-                        } else {
-                            time_panels.clone()
-                        };
-                        Some(Section {
-                            content_panels: his,
-                            grid_panels,
-                            highlight_room: None,
-                            highlight_panel_ids: Some(ids),
-                            left_label: presenter.name.clone(),
-                            right_label: time_label.clone(),
-                            corner_label: time_label,
-                            window_start: win_start,
-                            window_end: win_end,
-                        })
-                    })
+                            if his.is_empty() {
+                                return None;
+                            }
+                            let ids: HashSet<String> = his.iter().map(|p| p.id.clone()).collect();
+                            // grid_panels: time section panels + spanning ones for this presenter.
+                            let grid_panels = if let Some(ws) = win_start {
+                                let mut gp: Vec<&Panel> = spanning_into(panels, ws)
+                                    .into_iter()
+                                    .filter(|p| p.presenters.iter().any(|n| n == &presenter.name))
+                                    .collect();
+                                gp.extend_from_slice(&time_panels);
+                                gp
+                            } else {
+                                time_panels.clone()
+                            };
+                            Some(Section {
+                                content_panels: his,
+                                grid_panels,
+                                highlight_room: None,
+                                highlight_panel_ids: Some(ids),
+                                left_label: presenter.name.clone(),
+                                right_label: time_label.clone(),
+                                corner_label: time_label,
+                                window_start: win_start,
+                                window_end: win_end,
+                                base_font_override: base_font,
+                                grid_font_override: grid_font,
+                            })
+                        },
+                    )
                     .collect::<Vec<_>>()
             })
             .collect(),
