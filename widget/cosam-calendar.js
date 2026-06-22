@@ -2460,7 +2460,7 @@ import QRCode from 'qrcode';
       });
 
       // Create grid template styles
-      const timeCol = printMode ? 'minmax(44px, 60px)' : 'minmax(80px, 120px)';
+      const timeCol = printMode ? 'minmax(60px, 80px)' : 'minmax(80px, 120px)';
       const gridColumns = `[time] ${timeCol} ` + roomOrder.map(roomId => `[room-${roomId}] minmax(0, 1fr)`).join(' ');
 
       // A sticky header row repeats at each new day: its time-column corner
