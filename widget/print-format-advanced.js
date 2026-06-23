@@ -356,10 +356,11 @@
       this._modalContent = null;
     }
 
-    attach({ renderer, state, ICONS }) {
+    attach({ renderer, state, ICONS, mountOverlay }) {
       this.renderer = renderer;
       this.calendarState = state;
       this.ICONS = ICONS;
+      this._mountOverlay = mountOverlay;
 
       // Seed from shipped defaults if available
       if (state.data && state.data.printFormats) {
@@ -372,12 +373,19 @@
 
     _setupModal() {
       this._modalOverlay = el('div', { className: 'cosam-modal-overlay' });
-      this._modalContent = el('div', { className: 'cosam-modal-content' });
+      // Reuse the shared modal box styling (.cosam-modal); keep -content as a
+      // plugin hook. Without .cosam-modal the dialog box has no background.
+      this._modalContent = el('div', { className: 'cosam-modal cosam-modal-content' });
       this._modalOverlay.appendChild(this._modalContent);
       this._modalOverlay.addEventListener('click', (e) => {
         if (e.target === this._modalOverlay) this._modalClose();
       });
-      document.body.appendChild(this._modalOverlay);
+      // Mount into the host's persistent, theme-scoped overlay layer: it lives
+      // inside .cosam-calendar (so --cosam-* vars cascade and the dialog is
+      // themed) and survives re-renders. Fall back to <body> for older hosts
+      // without the hook — the plugin CSS still carries a background fallback.
+      if (this._mountOverlay) this._mountOverlay(this._modalOverlay);
+      else document.body.appendChild(this._modalOverlay);
     }
 
     _modalClose() {
@@ -777,8 +785,10 @@
       const showDesc = fmt.contentMode === 'descriptionOnly' || fmt.contentMode === 'both';
       const showList = fmt.contentMode === 'panelList';
 
-      const printContainer = el('div', { className: 'cosam-calendar cosam-print-root' });
-      printContainer.setAttribute('data-theme', ctx.state.theme || 'cosam');
+      // No data-theme: advanced print follows brand.toml (the --cosam-print-*
+      // vars), not the on-screen light/dark/contrast theme. Dedicated print
+      // themes may come later, separate from the UI themes.
+      const printContainer = el('div', { className: 'cosam-calendar cosam-print-advanced' });
       if (fmt.colorMode === 'bw') printContainer.classList.add('cosam-print-bw');
       if (fmt.cards) printContainer.classList.add('cosam-print-cards');
 
@@ -840,7 +850,11 @@
       const fontLinks = this._buildPrintFontLinks(fmt, brand);
       const dynamicCss = this._buildPrintCssVars(fmt, brand);
 
+      // The print container's `height: 100%` chain resolves against the page
+      // content box; the html/body anchor for it lives here (print window only)
+      // rather than in the shared stylesheet, so it never affects the live page.
       printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Schedule</title>${styleTag}${inlineStyleHtml}${fontLinks}<style>${allCSS}
+html,body{height:100%;margin:0;}
 .cosam-event-desc{display:block!important;}
 ${dynamicCss}</style></head><body>${printContainer.outerHTML}</body></html>`);
       printWin.document.close();
@@ -1024,7 +1038,7 @@ ${dynamicCss}</style></head><body>${printContainer.outerHTML}</body></html>`);
 
       const landscape = fmt.contentMode !== 'panelList';
       const pageCss = `@page{size:${landscape ? 'landscape' : 'portrait'};margin:0.2in;}`;
-      return `${pageCss}.cosam-print-root{${vars.join('')}}`;
+      return `${pageCss}.cosam-print-advanced{${vars.join('')}}`;
     }
 
     _buildPrintTimeGroupedDescriptions(events, groupLabel) {

@@ -1024,7 +1024,7 @@ import QRCode from 'qrcode';
     }
 
     render() {
-      this.root.innerHTML = '';
+      this._clearRoot();
       if (!this.state.data) {
         const loadStatus = this.state._loadStatus || 'loading';
         const isError = loadStatus === 'error';
@@ -3628,6 +3628,47 @@ import QRCode from 'qrcode';
       this._modalOverlay.classList.add('open');
     }
 
+    // ── Plugin overlay layer ──
+
+    /**
+     * Persistent, theme-scoped layer for plugin overlay UI (modals, popovers).
+     *
+     * Plugins must not append overlays to `<body>` (the `--cosam-*` theme vars,
+     * defined on the `.cosam-calendar` root, won't cascade) nor to the root's
+     * normal content (`render()` wipes it). This layer lives inside the root so
+     * vars cascade, and is preserved across re-renders by [`_clearRoot`]. It is
+     * created lazily on first [`mountOverlay`] so widgets with no plugin pay
+     * nothing.
+     */
+    _ensureOverlayLayer() {
+      if (!this._overlayLayer) {
+        this._overlayLayer = el('div', { className: 'cosam-overlay-layer' });
+      }
+      if (this._overlayLayer.parentNode !== this.root) {
+        this.root.appendChild(this._overlayLayer);
+      }
+      return this._overlayLayer;
+    }
+
+    /**
+     * Mount a plugin's overlay element into the persistent overlay layer.
+     * Returns an unmount function. The element keeps the widget theme (it lives
+     * inside `.cosam-calendar`) and survives re-renders.
+     * @param {HTMLElement} element
+     * @returns {() => void}
+     */
+    mountOverlay(element) {
+      this._ensureOverlayLayer().appendChild(element);
+      return () => { if (element.parentNode) element.parentNode.removeChild(element); };
+    }
+
+    /** Clear the root for a re-render, preserving the persistent overlay layer. */
+    _clearRoot() {
+      const layer = this._overlayLayer;
+      this.root.innerHTML = '';
+      if (layer) this.root.appendChild(layer);
+    }
+
     // ── Print ──
 
     /**
@@ -3644,6 +3685,7 @@ import QRCode from 'qrcode';
         view: this.state.view,
         ICONS: ICONS,
         el: el,
+        mountOverlay: (element) => this.mountOverlay(element),
       };
     }
 
@@ -3946,7 +3988,7 @@ ${allCSS}
     // Call plugin attach after data is loaded so it can access printFormats
     // Only call if not already attached (check for a flag)
     if (state._printPlugin && typeof state._printPlugin.attach === 'function' && !state._printPlugin._attached) {
-      state._printPlugin.attach({ renderer, state, ICONS });
+      state._printPlugin.attach({ renderer, state, ICONS, mountOverlay: (element) => renderer.mountOverlay(element) });
       state._printPlugin._attached = true;
     }
 

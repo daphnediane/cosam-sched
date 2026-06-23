@@ -6,6 +6,148 @@
 
 /* ── Advanced Print Format Styles ───────────────────────────────────────────── */
 
+/* ── Print page layout ──────────────────────────────────────────────────────
+   These rules lay out the print container the plugin renders into a separate
+   window (`.cosam-print-advanced`). Because `.cosam-print-advanced` never appears in the
+   live widget document, the rules are inert on the page and apply only in the
+   print window — so they are always-on (not wrapped in `@media print`) and the
+   layout is inspectable on screen, matching the simple print system's
+   `.cosam-print`/`.cosam-screen` foundation. The `html, body { height: 100% }`
+   chain these depend on is injected into the print window's own <style> by the
+   plugin (it must not leak into the live page). */
+
+/* Page background fill (set via --cosam-print-page-fill). */
+.cosam-print-advanced {
+  background: var(--cosam-print-page-fill, #ffffff);
+  height: 100%;
+}
+
+/* Keep brand/panel-type backgrounds and borders when printing (browsers strip
+   them otherwise). The simple system gets this from `.cosam-print *`; the
+   advanced container is its own root, so it needs its own copy. */
+.cosam-print-advanced *,
+.cosam-print-advanced *::before,
+.cosam-print-advanced *::after {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Hide interactive chrome that the reused renderers may emit (stars, action
+   buttons): print is non-interactive. */
+.cosam-print-advanced .cosam-event-star,
+.cosam-print-advanced .cosam-grid-event-star,
+.cosam-print-advanced .cosam-grid-event-actions,
+.cosam-print-advanced .cosam-btn {
+  display: none !important;
+}
+
+/* Each time-split group is a section that starts on a fresh page. */
+.cosam-print-section {
+  break-before: page;
+  page-break-before: always;
+}
+
+.cosam-print-section:first-child {
+  break-before: avoid;
+  page-break-before: avoid;
+}
+
+/* Description-only / list section → flow descriptions across all N columns.
+   No fixed height: the column flow paginates naturally across pages. */
+.cosam-print-section.cosam-print-has-desc:not(.cosam-print-has-grid) {
+  column-count: var(--cosam-print-columns, 2);
+  column-gap: var(--cosam-print-col-gap, 0.2in);
+}
+
+/* Grid + descriptions → a CSS grid: a full-width banner row (auto height) over a
+   body row that fills the rest, split into the schedule grid and the
+   descriptions by their column shares. */
+.cosam-print-section.cosam-print-has-grid.cosam-print-has-desc {
+  display: grid;
+  grid-template-columns:
+    calc(var(--cosam-print-grid-cols, 2) * 1fr) calc(var(--cosam-print-desc-cols, 2) * 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: var(--cosam-print-col-gap, 0.2in);
+  height: 100%;
+  overflow: hidden;
+}
+
+.cosam-print-section.cosam-print-has-grid.cosam-print-has-desc > .cosam-print-header {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.cosam-print-section.cosam-print-has-grid.cosam-print-has-desc > .cosam-print-grid-region {
+  grid-column: 1;
+  grid-row: 2;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cosam-print-section.cosam-print-has-grid.cosam-print-has-desc > .cosam-print-desc-cols {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 0;
+  min-width: 0;
+  column-count: var(--cosam-print-desc-cols, 2);
+  column-gap: var(--cosam-print-col-gap, 0.2in);
+  column-fill: auto;
+  overflow: hidden;
+}
+
+/* Grid-only section: a banner row (auto) over a grid that fills the page. */
+.cosam-print-section.cosam-print-has-grid:not(.cosam-print-has-desc) {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+}
+
+.cosam-print-section.cosam-print-has-grid:not(.cosam-print-has-desc) > .cosam-print-grid-region {
+  grid-row: 2;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Print schedule grid (reuses the on-screen CSS Grid) ──────────────────── */
+.cosam-print-grid {
+  height: 100%;
+}
+
+/* The grid stretches to its region so the inline `1fr` rows are even and fill
+   the column height (the core "rows vary / grid doesn't fill" fix). */
+.cosam-print-grid .cosam-grid {
+  height: 100%;
+  width: 100%;
+  font-size: var(--cosam-print-grid-pt, 7px);
+  gap: 0;
+}
+
+/* Header + time column: shared brand-primary band (matching Typst). */
+.cosam-print-grid .cosam-grid-header-cell,
+.cosam-print-grid .cosam-grid-time-header {
+  background: var(--cosam-print-header-bg, var(--cosam-accent, #00bcdd));
+  color: #fff;
+  position: static;
+  /* drop sticky positioning in print */
+  border: 0.4pt solid var(--cosam-print-gridline-color, #d2d2d2);
+  padding: 2px 4px;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Event / break cells: thin gridlines, no shadow, clip overflow. */
+.cosam-print-grid .cosam-grid-event,
+.cosam-print-grid .cosam-grid-break {
+  border: 0.4pt solid var(--cosam-print-gridline-color, #d2d2d2);
+  border-left-width: 2.5pt;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 2px 3px;
+  overflow: hidden;
+}
+
 /* Print grid styles */
 .cosam-print-grid .cosam-grid-event-people,
 .cosam-print-grid .cosam-grid-event-room {
@@ -86,7 +228,7 @@
 
 /* Ensure footer repeats at bottom of each page */
 @media print {
-  .cosam-print-root {
+  .cosam-print-advanced {
     position: relative;
   }
 
@@ -185,7 +327,7 @@
   background: #fff;
 }
 
-.cosam-print-root:not(.cosam-print-cards) .cosam-print-desc-cols .cosam-event-card {
+.cosam-print-advanced:not(.cosam-print-cards) .cosam-print-desc-cols .cosam-event-card {
   border: none;
   border-radius: 0;
   padding: 2px 0 2px 6px;
@@ -193,52 +335,52 @@
 }
 
 /* Font-role bindings (families set via --cosam-print-font-* vars). */
-.cosam-print-root .cosam-print-day-label {
+.cosam-print-advanced .cosam-print-day-label {
   font-family: var(--cosam-print-font-banner, inherit);
 }
 
-.cosam-print-root .cosam-event-title,
-.cosam-print-root .cosam-grid-event-name {
+.cosam-print-advanced .cosam-event-title,
+.cosam-print-advanced .cosam-grid-event-name {
   font-family: var(--cosam-print-font-heading, inherit);
 }
 
-.cosam-print-root .cosam-event-desc,
-.cosam-print-root .cosam-event-meta,
-.cosam-print-root .cosam-event-presenters {
+.cosam-print-advanced .cosam-event-desc,
+.cosam-print-advanced .cosam-event-meta,
+.cosam-print-advanced .cosam-event-presenters {
   font-family: var(--cosam-print-font-body, inherit);
 }
 
 /* Optional base/grid point-size overrides. */
-.cosam-print-root .cosam-event-card {
+.cosam-print-advanced .cosam-event-card {
   font-size: var(--cosam-print-base-pt, 12pt);
 }
 
-.cosam-print-root .cosam-grid-event {
+.cosam-print-advanced .cosam-grid-event {
   font-size: var(--cosam-print-grid-pt, 9pt);
 }
 
 /* Scale all child elements relative to base font size */
-.cosam-print-root .cosam-event-title {
+.cosam-print-advanced .cosam-event-title {
   font-size: 1.1em;
 }
 
-.cosam-print-root .cosam-event-meta {
+.cosam-print-advanced .cosam-event-meta {
   font-size: 0.85em;
 }
 
-.cosam-print-root .cosam-event-desc {
+.cosam-print-advanced .cosam-event-desc {
   font-size: 0.9em;
 }
 
-.cosam-print-root .cosam-event-presenters {
+.cosam-print-advanced .cosam-event-presenters {
   font-size: 0.85em;
 }
 
-.cosam-print-root .cosam-event-badges {
+.cosam-print-advanced .cosam-event-badges {
   font-size: 0.75em;
 }
 
-.cosam-print-root .cosam-badge {
+.cosam-print-advanced .cosam-badge {
   font-size: 0.9em;
 }
 
@@ -263,6 +405,18 @@
 }
 
 /* ── Print format menu & edit form (screen UI) ─────────────────────────── */
+
+/* The plugin mounts its modal on <body> (outside .cosam-calendar), so the
+   --cosam-* theme vars don't cascade and .cosam-modal's `var(--cosam-bg)`
+   background resolves to nothing — leaving the dialog transparent. Give the box
+   an explicit fallback; the form's labels/inputs already use var(..., fallback).
+   Higher specificity (.cosam-modal.cosam-modal-content) wins regardless of
+   stylesheet order. */
+.cosam-modal.cosam-modal-content {
+  background: var(--cosam-bg, #ffffff);
+  color: var(--cosam-text, #1f2937);
+}
+
 .cosam-print-form {
   display: flex;
   flex-direction: column;
