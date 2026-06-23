@@ -17,7 +17,8 @@ Complete index of cosam-sched documentation, including current documents and pla
 ### Architecture and Design
 
 * **architecture.md** - Overall system architecture, crate layout (schedule-core, schedule-macro), entity/field system overview, Schedule container design, UUID identity, and design decisions.
-* **layout-formats.md** - Print layout formats (`schedule-layout` crate): the `generate` contract and filename conventions, shared building blocks (preamble, banner, grid, panel blocks, the `place`+`colbreak` grid/column mixing), each format (schedule, descriptions, workshops, room signs, flyer, guest postcards), and per-paper column counts.
+* **layout-formats.md** - Print layout formats (`schedule-layout` crate): the `generate` contract and filename conventions, shared building blocks (preamble, banner, grid, panel blocks, the `place`+`colbreak` grid/column mixing), each format (schedule, descriptions, workshops, room signs, flyer, guest postcards), per-job config options, and per-paper column counts.
+* **layout-geometry.md** - Page geometry overview for `schedule-layout`: the top-margin relationship, the fixed-height banner, the footer placement model (and the `footer-descent` body-gap gotcha), per-job banner/footer chrome sizing (`banner_size`/`footer_size`), and the header-name shrink-to-fit. Points to the canonical constants in `geometry.rs`.
 
 ### Data Model
 

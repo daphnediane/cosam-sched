@@ -167,12 +167,22 @@ impl GridLayout {
             })
             .collect();
 
-        // Add window boundary epochs so the grid opens/closes at the edge.
+        // Add a window boundary epoch only when a rendering panel actually crosses
+        // it — i.e. a panel that starts before `window_start` (or ends after
+        // `window_end`) is clamped to the edge and needs that slot as its anchor.
+        // Forcing the boundary in unconditionally created a blank leading/trailing
+        // row whenever the first/last panel sat *inside* the window (e.g. a custom
+        // timeline block beginning at midnight with no panel until the afternoon).
+        let boundary_panels = || regular.iter().filter(|p| renders_cell(p)).chain(breaks.iter());
         if let Some(wse) = win_start_epoch {
-            slot_set.insert(wse);
+            if boundary_panels().any(|p| p.start_epoch.is_some_and(|s| s < wse)) {
+                slot_set.insert(wse);
+            }
         }
         if let Some(wee) = win_end_epoch {
-            slot_set.insert(wee);
+            if boundary_panels().any(|p| p.end_epoch.is_some_and(|e| e > wee)) {
+                slot_set.insert(wee);
+            }
         }
 
         // Even-slot filling: GCD of local minute-of-hour for regular events.
@@ -461,5 +471,60 @@ mod tests {
         assert_eq!(gcd(60, 45), 15);
         assert_eq!(gcd(60, 20), 20);
         assert_eq!(gcd(60, 0), 60);
+    }
+
+    /// Build a minimal one-room schedule (UTC) for window-boundary tests.
+    fn one_room_data() -> crate::model::ScheduleData {
+        crate::model::ScheduleData {
+            rooms: vec![crate::model::Room {
+                uid: 1,
+                short_name: "A".into(),
+                ..crate::model::Room::default()
+            }],
+            ..crate::model::ScheduleData::default()
+        }
+    }
+
+    fn ep_panel(id: &str, start: i64, end: i64) -> crate::model::Panel {
+        crate::model::Panel {
+            id: id.into(),
+            room_ids: vec![1],
+            start_epoch: Some(start),
+            end_epoch: Some(end),
+            ..crate::model::Panel::default()
+        }
+    }
+
+    #[test]
+    fn window_start_before_first_panel_has_no_blank_leading_slot() {
+        // A custom-timeline block that opens at midnight but whose first panel is
+        // at 17:00 must not emit a blank leading row at the window start.
+        let data = one_room_data();
+        let midnight = 1_782_460_800_i64; // minute-aligned
+        let p = ep_panel("P1", midnight + 17 * 3600, midnight + 18 * 3600);
+        let refs = [&p];
+        let layout = GridLayout::compute(&refs, &data, Some(midnight), None);
+        assert_eq!(
+            layout.time_slots.first().map(|s| s.epoch),
+            Some(midnight + 17 * 3600),
+            "first slot should be the first panel, not the window start"
+        );
+    }
+
+    #[test]
+    fn window_start_keeps_anchor_slot_for_spanning_panel() {
+        // A panel that starts before the window is clamped to the edge, so the
+        // window-start slot must still be emitted as its anchor.
+        let data = one_room_data();
+        let midnight = 1_782_460_800_i64;
+        let spanning = ep_panel("P0", midnight - 3600, midnight + 3600);
+        let later = ep_panel("P1", midnight + 17 * 3600, midnight + 18 * 3600);
+        let refs = [&spanning, &later];
+        let layout = GridLayout::compute(&refs, &data, Some(midnight), None);
+        assert_eq!(
+            layout.time_slots.first().map(|s| s.epoch),
+            Some(midnight),
+            "a panel spanning into the window keeps the window-start anchor slot"
+        );
     }
 }

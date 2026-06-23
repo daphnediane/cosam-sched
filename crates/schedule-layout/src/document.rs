@@ -125,9 +125,12 @@ pub fn generate(
         .page_fill_expr()
         .map(|c| format!("fill: {c}, "))
         .unwrap_or_default();
+    // `footer-descent` is the gap between the body and the footer *top*, so it is
+    // pinned to 0: the footer block begins at the body bottom and reserves its own
+    // bottom margin (`_footer-descent`) via its height (see `banner::footer_context`).
     doc.push_str(&format!(
         "#set page({page_fill_attr}margin: (top: _content-top, bottom: {bottom}, left: _page-edge, right: _page-edge), \
-         footer-descent: _footer-descent)\n",
+         footer-descent: 0pt)\n",
     ));
 
     // Footer (selected by FooterMode), set before the header so both `#set page`
@@ -249,6 +252,7 @@ pub fn generate(
                     empty_grid_fill.as_deref(),
                     grid_fit,
                     dim_conflict,
+                    CellOptions::from_config(config),
                 ));
             }
             ContentMode::Both { .. } => {
@@ -273,6 +277,7 @@ pub fn generate(
                     empty_grid_fill.as_deref(),
                     grid_fit,
                     dim_conflict,
+                    CellOptions::from_config(config),
                 ));
                 doc.push_str("])\n");
 
@@ -322,6 +327,24 @@ pub fn generate(
     vec![(String::new(), doc)]
 }
 
+/// Per-job grid-cell content options resolved from the [`LayoutConfig`].
+#[derive(Debug, Clone, Copy)]
+struct CellOptions {
+    show_cost: bool,
+    show_duration: bool,
+    fit_text: crate::config::FitText,
+}
+
+impl CellOptions {
+    fn from_config(config: &LayoutConfig) -> Self {
+        Self {
+            show_cost: config.show_cost(),
+            show_duration: config.show_duration(),
+            fit_text: config.fit_text,
+        }
+    }
+}
+
 /// Render the schedule grid for a section, applying both highlight kinds.
 ///
 /// When `fit_page` is set (full-page `GridOnly` content) the grid is capped to
@@ -336,6 +359,7 @@ fn render_grid(
     empty_fill: Option<&str>,
     fit_page: bool,
     dim_conflict: bool,
+    cell: CellOptions,
 ) -> String {
     // Grid font sizes are global `#let`s from the preamble (`fonts::typst_lets`).
     let mut cfg = GridRenderConfig::full_page("", section.highlight_room);
@@ -344,6 +368,9 @@ fn render_grid(
     cfg.empty_fill = empty_fill.map(str::to_string);
     cfg.fit_to_page = fit_page;
     cfg.dim_conflict = dim_conflict;
+    cfg.show_cost = cell.show_cost;
+    cfg.show_duration = cell.show_duration;
+    cfg.fit_text = cell.fit_text;
     let layout = GridLayout::compute(
         &section.grid_panels,
         data,
@@ -824,6 +851,13 @@ fn spanning_into<'a>(all_panels: &[&'a Panel], window_start: i64) -> Vec<&'a Pan
         .collect()
 }
 
+/// Grid corner-cell label (above the time column). The section's identity (day /
+/// timeline block / room / presenter) is already shown in the running banner, so
+/// the corner just labels the time column rather than repeating that name — a
+/// long timeline label like "Saturday Afternoon" otherwise wraps *and* widens the
+/// whole time column to fit it.
+const TIME_CORNER_LABEL: &str = "Time";
+
 /// Build the document's sections for the configured split.
 fn build_sections<'a>(
     config: &LayoutConfig,
@@ -873,7 +907,7 @@ fn build_sections<'a>(
                         highlight_panel_ids: None,
                         left_label: String::new(),
                         right_label: label.clone(),
-                        corner_label: label,
+                        corner_label: TIME_CORNER_LABEL.to_string(),
                         window_start: win_start,
                         window_end: win_end,
                         base_font_override: base_font,
@@ -903,7 +937,7 @@ fn build_sections<'a>(
                     highlight_panel_ids: None,
                     left_label: String::new(),
                     right_label: name.clone(),
-                    corner_label: name,
+                    corner_label: TIME_CORNER_LABEL.to_string(),
                     window_start: None,
                     window_end: None,
                     base_font_override: None,
@@ -957,7 +991,7 @@ fn build_sections<'a>(
                                 highlight_panel_ids: None,
                                 left_label: name.clone(),
                                 right_label: time_label.clone(),
-                                corner_label: time_label,
+                                corner_label: TIME_CORNER_LABEL.to_string(),
                                 window_start: win_start,
                                 window_end: win_end,
                                 base_font_override: base_font,
@@ -992,7 +1026,7 @@ fn build_sections<'a>(
                     highlight_panel_ids: None,
                     left_label: String::new(),
                     right_label: presenter.name.clone(),
-                    corner_label: presenter.name.clone(),
+                    corner_label: TIME_CORNER_LABEL.to_string(),
                     window_start: None,
                     window_end: None,
                     base_font_override: None,
@@ -1058,7 +1092,7 @@ fn build_sections<'a>(
                                 highlight_panel_ids: highlight,
                                 left_label: presenter.name.clone(),
                                 right_label: time_label.clone(),
-                                corner_label: time_label,
+                                corner_label: TIME_CORNER_LABEL.to_string(),
                                 window_start: win_start,
                                 window_end: win_end,
                                 base_font_override: base_font,

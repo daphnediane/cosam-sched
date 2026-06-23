@@ -77,8 +77,8 @@ use thiserror::Error;
 use schedule_layout::{
     color::ColorMode,
     config::{
-        ContentMode, FooterMode, LayoutConfig, LayoutFormat, Orientation, PanelFilter, PaperSize,
-        SectionSplit, TimeSplit,
+        ChromeSize, ContentMode, FitText, FooterMode, LayoutConfig, LayoutFormat, Orientation,
+        PanelFilter, PaperSize, SectionSplit, TimeSplit,
     },
 };
 
@@ -240,9 +240,15 @@ pub struct JobConfig {
     /// - Any other string — looked up as a named alias in `[logos]`, then as a bare
     ///   filename within `logo_dir`.
     pub logo: Option<String>,
-    /// Override the banner text size (e.g. `"18pt"`). Defaults to 28 pt when unset.
-    /// Useful for postcards or jobs with long presenter names.
+    /// Override the banner text size (e.g. `"18pt"`). Defaults to 28 pt (13 pt on
+    /// compact papers) when unset. Useful for jobs with long presenter names.
     pub banner_text_pt: Option<String>,
+    /// Banner bar sizing: `"auto"` (default — compact on 4×6/quarter, full
+    /// otherwise), `"compact"`, `"full"`, or an explicit length like `"0.5in"`.
+    pub banner_size: Option<String>,
+    /// Footer chrome sizing: `"auto"` (default), `"compact"`, `"full"`, or an
+    /// explicit reserved-height length like `"0.4in"`.
+    pub footer_size: Option<String>,
     /// Micro font family override (falls back to the brand's `micro`).
     /// `"none"` disables the small-size substitution for this job.
     pub micro: Option<String>,
@@ -256,6 +262,15 @@ pub struct JobConfig {
     /// Fit a full-page schedule grid onto one page, condensing text-heavy cells
     /// when needed. Defaults to on for grid-only content, off otherwise.
     pub fit_grid: Option<bool>,
+    /// How panel text is fitted into a compressed cell: `shrink`/`all` (default,
+    /// scale font), `name` (keep the name, hide overflowing secondary lines), or
+    /// `clip`/`none`.
+    pub fit_text: Option<String>,
+    /// Show the per-event duration line in grid cells. Defaults off on compact
+    /// (4×6/quarter) papers; boundary-truncated panels always show duration.
+    pub show_duration: Option<bool>,
+    /// Show the per-event cost in grid cells (default on).
+    pub show_cost: Option<bool>,
     /// Optional URL encoded as a QR code in the bottom-right corner of each page.
     pub qr_url: Option<String>,
     /// Optional caption shown above the QR code (e.g. `"Register Here"`).
@@ -357,6 +372,12 @@ impl JobConfig {
         if other.banner_text_pt.is_some() {
             self.banner_text_pt = other.banner_text_pt.clone();
         }
+        if other.banner_size.is_some() {
+            self.banner_size = other.banner_size.clone();
+        }
+        if other.footer_size.is_some() {
+            self.footer_size = other.footer_size.clone();
+        }
         if other.micro.is_some() {
             self.micro = other.micro.clone();
         }
@@ -371,6 +392,15 @@ impl JobConfig {
         }
         if other.fit_grid.is_some() {
             self.fit_grid = other.fit_grid;
+        }
+        if other.fit_text.is_some() {
+            self.fit_text = other.fit_text.clone();
+        }
+        if other.show_duration.is_some() {
+            self.show_duration = other.show_duration;
+        }
+        if other.show_cost.is_some() {
+            self.show_cost = other.show_cost;
         }
         if other.qr_url.is_some() {
             self.qr_url = other.qr_url.clone();
@@ -739,11 +769,28 @@ impl JobConfig {
             // show the brand logo.
             logo: Some(self.logo.clone().unwrap_or_else(|| "brand".to_string())),
             banner_text_pt: self.banner_text_pt.clone(),
+            banner_size: self
+                .banner_size
+                .as_deref()
+                .map(ChromeSize::parse)
+                .unwrap_or_default(),
+            footer_size: self
+                .footer_size
+                .as_deref()
+                .map(ChromeSize::parse)
+                .unwrap_or_default(),
             micro: self.micro.clone(),
             micro_style: self.micro_style.clone(),
             micro_weight: self.micro_weight.clone(),
             micro_max_pt: self.micro_max_pt,
             fit_grid: self.fit_grid,
+            fit_text: self
+                .fit_text
+                .as_deref()
+                .map(FitText::parse)
+                .unwrap_or_default(),
+            show_duration: self.show_duration,
+            show_cost: self.show_cost,
             qr_url: self.qr_url.clone(),
             qr_msg: self.qr_msg.clone(),
             qr_caption_pt: self.qr_caption_pt.clone(),
@@ -821,6 +868,8 @@ pub fn apply_layout_arg(job: &mut JobConfig, key: &str, value: Option<&str>) -> 
         "brand_config" => job.brand_config = Some(str_val()?),
         "logo" => job.logo = Some(str_val()?),
         "banner_text_pt" => job.banner_text_pt = Some(str_val()?),
+        "banner_size" => job.banner_size = Some(str_val()?),
+        "footer_size" => job.footer_size = Some(str_val()?),
         "micro" => job.micro = Some(str_val()?),
         "micro_style" => job.micro_style = Some(str_val()?),
         "micro_weight" => job.micro_weight = Some(str_val()?),
@@ -832,6 +881,9 @@ pub fn apply_layout_arg(job: &mut JobConfig, key: &str, value: Option<&str>) -> 
             )
         }
         "fit_grid" => job.fit_grid = Some(parse_layout_bool(key, value)?),
+        "fit_text" => job.fit_text = Some(str_val()?),
+        "show_duration" => job.show_duration = Some(parse_layout_bool(key, value)?),
+        "show_cost" => job.show_cost = Some(parse_layout_bool(key, value)?),
         "qr_url" => job.qr_url = Some(str_val()?),
         "qr_msg" => job.qr_msg = Some(str_val()?),
         "qr_caption_pt" => job.qr_caption_pt = Some(str_val()?),

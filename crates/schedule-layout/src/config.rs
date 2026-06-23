@@ -53,6 +53,16 @@ impl PaperSize {
         }
     }
 
+    /// Whether this is a small "photo" paper (4×6 postcard or quarter letter).
+    ///
+    /// Compact papers use proportionally thinner banner/footer geometry and
+    /// smaller banner/footer text defaults so those bars do not dominate the
+    /// much shorter page (see [`crate::geometry`] and [`crate::fonts`]).
+    #[must_use]
+    pub fn is_compact(&self) -> bool {
+        matches!(self, PaperSize::Postcard4x6 | PaperSize::Quarter)
+    }
+
     /// Typst paper name used in `#set page(paper: ...)`.
     /// Returns `None` for sizes that require explicit `width`/`height` dimensions
     /// (e.g. `Poster`).
@@ -217,6 +227,38 @@ pub enum LayoutFormat {
     /// Adobe InDesign Markup Language package (`.idml`). Feature-gated behind the
     /// `idml` crate feature; see [`crate::idml`].
     Idml,
+}
+
+/// How panel text is fitted into a (height-constrained) grid cell when the grid
+/// is compressed to one page (see [`LayoutConfig::fit_grid`]). Only has a visible
+/// effect when rows are compressed; with a freely-flowing grid every mode shows
+/// the full text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FitText {
+    /// Scale the whole cell's font down so all content (name + secondary lines)
+    /// fits the row — the original fit-to-page behavior.
+    #[default]
+    Shrink,
+    /// Keep the panel name at its natural size and drop whole secondary lines
+    /// (presenters, cost, duration) from the bottom when they do not fit. Favors a
+    /// readable name over showing every detail — useful on small papers.
+    Name,
+    /// Do not resize or drop anything; overflowing content is clipped at the cell
+    /// edge.
+    Clip,
+}
+
+impl FitText {
+    /// Parse a `fit_text` config string. `all`/`shrink` → [`FitText::Shrink`],
+    /// `name` → [`FitText::Name`], `clip`/`none`/`off` → [`FitText::Clip`].
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "name" => FitText::Name,
+            "clip" | "none" | "off" => FitText::Clip,
+            _ => FitText::Shrink,
+        }
+    }
 }
 
 /// Page-footer content.
@@ -433,6 +475,19 @@ pub struct LayoutConfig {
     /// off otherwise. Set `Some(false)` to let a grid flow naturally (and
     /// paginate) instead, or `Some(true)` to force fitting.
     pub fit_grid: Option<bool>,
+    /// How panel text is fitted into a compressed grid cell. See [`FitText`];
+    /// defaults to [`FitText::Shrink`] (the original behavior).
+    pub fit_text: FitText,
+    /// Show each event's duration line in grid cells. `None` follows the paper —
+    /// off on compact (4×6 / quarter) papers, where the time column already makes
+    /// duration obvious — and a panel split across a time-split boundary always
+    /// shows its (full) duration regardless, since its truncated cell can't convey
+    /// it. `Some(true)`/`Some(false)` force it on/off.
+    pub show_duration: Option<bool>,
+    /// Show event cost (e.g. a workshop price) in grid cells. `None` defaults to
+    /// on; guest schedules typically set `false`, since a personal schedule does
+    /// not need ticket prices.
+    pub show_cost: Option<bool>,
     /// Optional URL encoded as a QR code placed in the bottom-right corner of
     /// every page. `None` omits the QR entirely. The URL is also shown in small
     /// text below the code.
@@ -450,6 +505,74 @@ pub struct LayoutConfig {
     /// ([`crate::qr::DEFAULT_QR_SIZE`]). Only used when [`qr_url`](Self::qr_url)
     /// is set.
     pub qr_size: Option<String>,
+    /// Banner chrome sizing — the banner bar height and the banner text-size
+    /// default that pairs with it. See [`ChromeSize`].
+    pub banner_size: ChromeSize,
+    /// Footer chrome sizing — the reserved footer bottom margin and the footer
+    /// text-size default that pairs with it. See [`ChromeSize`].
+    pub footer_size: ChromeSize,
+}
+
+/// How tall a page chrome bar (banner or footer) should be.
+///
+/// The banner is rendered as a fixed-height block; this selects that height (or
+/// the reserved footer margin) and the text-size default that pairs with it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum ChromeSize {
+    /// Follow the paper: compact on [`PaperSize::is_compact`] papers (4×6,
+    /// quarter), full-size otherwise.
+    #[default]
+    Auto,
+    /// Thin compact chrome — proportional to a small "photo" page.
+    Compact,
+    /// Full-size chrome — the standard banner/footer used on letter and larger.
+    Full,
+    /// An explicit height: a Typst length (e.g. `"0.5in"`, `"40pt"`) or a
+    /// percentage of the page height (e.g. `"4%"`). Sets the banner-bar height or
+    /// the reserved footer bottom margin. Text defaults fall back to the
+    /// full-size values; a banner logo is capped to fit.
+    Length(String),
+}
+
+impl ChromeSize {
+    /// Parse a `banner_size`/`footer_size` config string: `auto`, `compact`,
+    /// `full`, or any other value treated as an explicit Typst length.
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "" | "auto" => ChromeSize::Auto,
+            "compact" => ChromeSize::Compact,
+            "full" | "standard" => ChromeSize::Full,
+            _ => ChromeSize::Length(s.trim().to_string()),
+        }
+    }
+
+    /// Whether this resolves to compact chrome on `paper`. `Length` keeps the
+    /// full-size text/inset defaults (only the bar height is custom).
+    #[must_use]
+    pub fn is_compact(&self, paper: PaperSize) -> bool {
+        match self {
+            ChromeSize::Auto => paper.is_compact(),
+            ChromeSize::Compact => true,
+            ChromeSize::Full | ChromeSize::Length(_) => false,
+        }
+    }
+
+    /// The explicit bar height as a concrete Typst length, if this is
+    /// [`ChromeSize::Length`]. A `"<n>%"` value is resolved against
+    /// `page_height_in` (the page's height in the current orientation, inches);
+    /// any other value is passed through verbatim.
+    #[must_use]
+    pub fn explicit_height(&self, page_height_in: f64) -> Option<String> {
+        let s = match self {
+            ChromeSize::Length(s) => s.as_str(),
+            _ => return None,
+        };
+        match s.strip_suffix('%').and_then(|p| p.trim().parse::<f64>().ok()) {
+            Some(pct) => Some(format!("{:.4}in", pct / 100.0 * page_height_in)),
+            None => Some(s.to_string()),
+        }
+    }
 }
 
 impl LayoutConfig {
@@ -457,6 +580,61 @@ impl LayoutConfig {
     /// override and falling back to `default` (clamped to at least 1).
     pub fn effective_columns(&self, default: u32) -> u32 {
         self.columns.unwrap_or(default).max(1)
+    }
+
+    /// The page height in inches in the current orientation (used to resolve
+    /// percentage chrome heights).
+    #[must_use]
+    pub fn page_height_in(&self) -> f64 {
+        let (w_mm, h_mm) = self.paper.dimensions_mm();
+        let height_mm = if self.orientation.is_landscape() {
+            w_mm
+        } else {
+            h_mm
+        };
+        height_mm / 25.4
+    }
+
+    /// Explicit banner-bar height length, resolving a percentage against the page
+    /// height; `None` for the auto/compact/full presets.
+    #[must_use]
+    pub fn banner_height_override(&self) -> Option<String> {
+        self.banner_size.explicit_height(self.page_height_in())
+    }
+
+    /// Explicit footer reserved-height length, resolving a percentage against the
+    /// page height; `None` for the auto/compact/full presets.
+    #[must_use]
+    pub fn footer_height_override(&self) -> Option<String> {
+        self.footer_size.explicit_height(self.page_height_in())
+    }
+
+    /// Whether grid cells show the per-event duration line. Honors the
+    /// [`show_duration`](Self::show_duration) override, defaulting to off on
+    /// compact papers (where the time column suffices) and on elsewhere. A
+    /// boundary-truncated cell shows its duration regardless — see the renderer.
+    #[must_use]
+    pub fn show_duration(&self) -> bool {
+        self.show_duration.unwrap_or(!self.paper.is_compact())
+    }
+
+    /// Whether grid cells show the per-event cost. Honors the
+    /// [`show_cost`](Self::show_cost) override, defaulting to on.
+    #[must_use]
+    pub fn show_cost(&self) -> bool {
+        self.show_cost.unwrap_or(true)
+    }
+
+    /// Whether the banner uses the compact (thin) chrome on this paper.
+    #[must_use]
+    pub fn banner_is_compact(&self) -> bool {
+        self.banner_size.is_compact(self.paper)
+    }
+
+    /// Whether the footer uses the compact (thin) chrome on this paper.
+    #[must_use]
+    pub fn footer_is_compact(&self) -> bool {
+        self.footer_size.is_compact(self.paper)
     }
 
     /// Get the effective base font size for this layout.
@@ -724,5 +902,50 @@ mod tests {
         assert_eq!(cfg.card_gap_expr(), "12pt");
         cfg.card_gap = Some("bogus".to_string());
         assert_eq!(cfg.card_gap_expr(), "_col-gutter");
+    }
+
+    #[test]
+    fn test_fit_text_parse() {
+        assert_eq!(FitText::parse("name"), FitText::Name);
+        assert_eq!(FitText::parse("NAME"), FitText::Name);
+        assert_eq!(FitText::parse("clip"), FitText::Clip);
+        assert_eq!(FitText::parse("none"), FitText::Clip);
+        assert_eq!(FitText::parse("off"), FitText::Clip);
+        assert_eq!(FitText::parse("all"), FitText::Shrink);
+        assert_eq!(FitText::parse("shrink"), FitText::Shrink);
+        assert_eq!(FitText::parse(""), FitText::Shrink);
+        assert_eq!(FitText::default(), FitText::Shrink);
+    }
+
+    #[test]
+    fn test_show_duration_default_paper_aware() {
+        // Compact papers default duration off; full-size papers default on.
+        let postcard = LayoutConfig {
+            paper: PaperSize::Postcard4x6,
+            ..LayoutConfig::default()
+        };
+        assert!(!postcard.show_duration());
+        let letter = LayoutConfig {
+            paper: PaperSize::Letter,
+            ..LayoutConfig::default()
+        };
+        assert!(letter.show_duration());
+        // Explicit override wins either way.
+        let forced = LayoutConfig {
+            paper: PaperSize::Postcard4x6,
+            show_duration: Some(true),
+            ..LayoutConfig::default()
+        };
+        assert!(forced.show_duration());
+    }
+
+    #[test]
+    fn test_show_cost_defaults_on() {
+        assert!(LayoutConfig::default().show_cost());
+        let off = LayoutConfig {
+            show_cost: Some(false),
+            ..LayoutConfig::default()
+        };
+        assert!(!off.show_cost());
     }
 }

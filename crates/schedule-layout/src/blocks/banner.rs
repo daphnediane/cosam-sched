@@ -42,9 +42,19 @@ pub(crate) fn page_header(
 ) -> String {
     let _ = brand; // styling uses document-scope brand-* variables
     let inner = build_inner(left, right, logo_path);
+    format!("#set page(header: {})\n", banner_block(&inner))
+}
+
+/// Wrap banner `inner` content in the fixed-height colored bar.
+///
+/// The block is exactly `_banner-height` tall (so the visible bar matches the
+/// reserved top margin) with its content vertically centered. Inner grids
+/// already align their cells `+ horizon`; the surrounding `align(horizon)` keeps
+/// single-label / logo-only content centered too.
+fn banner_block(inner: &str) -> String {
     format!(
-        "#set page(header: block(fill: brand-primary, width: 100%, \
-         inset: _banner-inset)[\n  {inner}\n])\n",
+        "block(fill: brand-primary, width: 100%, height: _banner-height, \
+         inset: _banner-inset)[\n  #align(horizon)[{inner}]\n]",
     )
 }
 
@@ -78,10 +88,7 @@ pub(crate) fn page_header_running(
         None => format!("#align(center)[{label}]"),
     };
 
-    format!(
-        "#set page(header: block(fill: brand-primary, width: 100%, \
-         inset: _banner-inset)[\n  {inner}\n])\n",
-    )
+    format!("#set page(header: {})\n", banner_block(&inner))
 }
 
 /// Generate a `#set page(header: …)` directive with *two* raw-Typst content
@@ -120,10 +127,7 @@ pub(crate) fn page_header_running_split(
         ),
     };
 
-    format!(
-        "#set page(header: block(fill: brand-primary, width: 100%, \
-         inset: _banner-inset)[\n  {inner}\n])\n",
-    )
+    format!("#set page(header: {})\n", banner_block(&inner))
 }
 
 /// Generate a `#set page(footer: …)` directive showing timestamps, a centered
@@ -141,17 +145,40 @@ pub(crate) fn page_footer(brand: &BrandConfig, timestamps: &str, site: &str) -> 
     let _ = brand; // colors come from document-scope brand-* variables
     let left = escape_typst(timestamps);
     let right = escape_typst(site);
+    footer_context(&format!(
+        "#grid(columns: (1fr, auto, 1fr), \
+           align: (left + horizon, center + horizon, right + horizon),\n    \
+           [{left}],\n    \
+           [Page #counter(page).display() of #counter(page).final().first()],\n    \
+           [{right}],\n  \
+         )",
+    ))
+}
+
+/// Wrap footer `content` (a grid or `align` expression) in the centered footer
+/// block. The horizontal rule sits `_footer-line-gap` below the body bottom — its
+/// historical position — and `content` is vertically centered in the space
+/// beneath the rule (`v(1fr)` either side), with a minimum `_footer-rule-gap`
+/// below the rule. The block's bottom rests at `footer-descent` from the page
+/// edge, so the text never drops into the bottom margin.
+fn footer_context(content: &str) -> String {
+    // The outer block fills the bottom margin from the body down to the bottom
+    // page margin: `footer-descent` (set in the preamble) pins its bottom at
+    // `_footer-descent` above the page edge, and its height ends at the body
+    // bottom. The rule sits `_footer-line-gap` below the body; the inner block
+    // takes the remaining height (`1fr`) and vertically centers the text with a
+    // minimum `_footer-rule-gap` below the rule. (A trailing `v(1fr)` would be
+    // collapsed at the block end, so centering uses an explicit sized block.)
     format!(
         "#set page(footer: context [\n  \
            #set text(size: _footer-text-size, fill: brand-dark)\n  \
-           #line(length: 100%, stroke: _footer-rule + brand-primary)\n  \
-           #v(_footer-rule-gap)\n  \
-           #grid(columns: (1fr, auto, 1fr), \
-             align: (left + horizon, center + horizon, right + horizon),\n    \
-             [{left}],\n    \
-             [Page #counter(page).display() of #counter(page).final().first()],\n    \
-             [{right}],\n  \
-           )\n\
+           #block(width: 100%, height: _footer-bottom - _footer-descent)[\n    \
+             #v(_footer-line-gap)\n    \
+             #line(length: 100%, stroke: _footer-rule + brand-primary)\n    \
+             #block(width: 100%, height: 1fr, inset: (top: _footer-rule-gap))[\n      \
+               #align(horizon)[{content}]\n    \
+             ]\n  \
+           ]\n\
          ])\n",
     )
 }
@@ -177,15 +204,11 @@ pub(crate) fn page_footer(brand: &BrandConfig, timestamps: &str, site: &str) -> 
 pub(crate) fn page_footer_section_pages(timestamps: &str, site: &str) -> String {
     let left = escape_typst(timestamps);
     let right = escape_typst(site);
-    format!(
-        "#set page(footer: context [\n  \
-           #set text(size: _footer-text-size, fill: brand-dark)\n  \
-           #line(length: 100%, stroke: _footer-rule + brand-primary)\n  \
-           #v(_footer-rule-gap)\n  \
-           #grid(columns: (1fr, auto, 1fr), \
-             align: (left + horizon, center + horizon, right + horizon),\n    \
-             [{left}],\n    \
-             {{\n      \
+    footer_context(&format!(
+        "#grid(columns: (1fr, auto, 1fr), \
+           align: (left + horizon, center + horizon, right + horizon),\n    \
+           [{left}],\n    \
+           {{\n      \
                let _pg = here().page()\n      \
                let _ms = query(<section>)\n      \
                let _final = counter(page).final().first()\n      \
@@ -206,9 +229,8 @@ pub(crate) fn page_footer_section_pages(timestamps: &str, site: &str) -> String 
                }}\n    \
              }},\n    \
              [{right}],\n  \
-           )\n\
-         ])\n",
-    )
+         )",
+    ))
 }
 
 /// Generate a `#set page(footer: …)` directive showing only the
@@ -219,14 +241,7 @@ pub(crate) fn page_footer_section_pages(timestamps: &str, site: &str) -> String 
 /// Must be emitted after `preamble()` so `brand-primary`/`brand-dark` exist.
 pub(crate) fn page_footer_timestamps_only(timestamps: &str) -> String {
     let center = escape_typst(timestamps);
-    format!(
-        "#set page(footer: context [\n  \
-           #set text(size: _footer-text-size, fill: brand-dark)\n  \
-           #line(length: 100%, stroke: _footer-rule + brand-primary)\n  \
-           #v(_footer-rule-gap)\n  \
-           #align(center)[{center}]\n\
-         ])\n",
-    )
+    footer_context(&format!("#align(center)[{center}]"))
 }
 
 /// Build the footer timestamp string for the page footer, mirroring the

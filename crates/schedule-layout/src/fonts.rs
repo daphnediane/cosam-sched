@@ -50,6 +50,12 @@ pub const MICRO_MAX_PT: f64 = 8.0;
 pub const BANNER_TEXT_SIZE_PT: f64 = 28.0;
 /// Footer text size (points).
 pub const FOOTER_TEXT_SIZE_PT: f64 = 8.0;
+/// Default banner label text size on compact (4×6 / quarter) papers (points).
+/// Smaller than [`BANNER_TEXT_SIZE_PT`] so the banner stays proportional to the
+/// short page. Used only when a job sets no explicit `banner_text_pt`.
+pub const COMPACT_BANNER_TEXT_SIZE_PT: f64 = 13.0;
+/// Footer text size on compact papers (points).
+pub const COMPACT_FOOTER_TEXT_SIZE_PT: f64 = 6.0;
 
 /// Name of the preamble `#let` holding the description/secondary text size
 /// (credits, the panel-list time/room text, "(continued)" tags). Emitted by
@@ -208,17 +214,25 @@ pub(crate) fn typst_lets(config: &LayoutConfig, brand: &BrandConfig) -> String {
         "#let _body-size = {}\n",
         config.effective_font_pt()
     ));
-    // Banner text size: use the job override if set, otherwise the built-in default.
-    let banner_size_default = format!("{BANNER_TEXT_SIZE_PT}pt");
+    // Banner text size: use the job override if set, otherwise a default that
+    // tracks the banner chrome — compact banners get smaller text.
+    let banner_default_pt = if config.banner_is_compact() {
+        COMPACT_BANNER_TEXT_SIZE_PT
+    } else {
+        BANNER_TEXT_SIZE_PT
+    };
+    let banner_size_default = format!("{banner_default_pt}pt");
     let banner_size = config
         .banner_text_pt
         .as_deref()
         .unwrap_or(&banner_size_default);
     out.push_str(&format!("#let _banner-text-size = {banner_size}\n"));
-    out.push_str(&format!(
-        "#let _footer-text-size = {}pt\n",
+    let footer_text_pt = if config.footer_is_compact() {
+        COMPACT_FOOTER_TEXT_SIZE_PT
+    } else {
         FOOTER_TEXT_SIZE_PT
-    ));
+    };
+    out.push_str(&format!("#let _footer-text-size = {footer_text_pt}pt\n"));
 
     // Grid text-role sizes — only when a grid is drawn.
     if config.content.shows_grid() {

@@ -74,7 +74,12 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
 
     // Geometry and font `#let`s come first so `#set page` margins and `#set text`
     // can reference them. Typefaces are dicts spread into the text calls.
-    let geometry_lets = crate::geometry::typst_lets();
+    let geometry_lets = crate::geometry::typst_lets(
+        config.banner_is_compact(),
+        config.banner_height_override().as_deref(),
+        config.footer_is_compact(),
+        config.footer_height_override().as_deref(),
+    );
     let font_lets = crate::fonts::typst_lets(config, brand);
 
     // When a micro font is configured, swap to it for any text below the

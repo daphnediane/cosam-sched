@@ -62,7 +62,8 @@ The caller joins the non-empty parts with `-`:
 
 - `stem` — the job's `stem` (TOML jobs), or the `--export-layout` path's file
   stem (a command-line `--layout.*` job).
-- `paper_dir` — `letter`, `legal`, `tabloid`, `super-b`, `poster`, `postcard`.
+- `paper_dir` — `letter`, `legal`, `tabloid`, `super-b`, `poster`, `postcard`,
+  `quarter`.
 
 For TOML jobs, PDFs are written under a per-paper-size subdirectory of the output
 dir and all `.typ` sources share a single `typ/` subdirectory. A command-line
@@ -71,21 +72,30 @@ that path has an extension, the PDF is written to it verbatim.
 
 ## Configuration (`LayoutConfig`)
 
-| Field             | Meaning                                                                                                                                    |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `paper`           | `Letter`, `Legal`, `Tabloid`, `SuperB`, `Poster`, `Postcard4x6`                                                                            |
-| `format`          | `Typst` (default, → PDF) or `Idml` (Adobe InDesign; see [IDML export](#idml-export))                                                       |
-| `content`         | [`ContentMode`](#contentmode--splits) — what to draw + how to split                                                                        |
-| `panel_filter`    | `All`, `Workshops`, `Premium`                                                                                                              |
-| `include_private` | Render the private view: private panels + unlisted presenters in per-presenter splits (byline credits stay credited-only). Default `false` |
-| `orientation`     | `Landscape` or `Portrait`                                                                                                                  |
-| `color_mode`      | Color or black-and-white output                                                                                                            |
-| `columns`         | Override the per-content/per-paper default column count                                                                                    |
-| `footer`          | `Full` (timestamps + page number + site), `TimestampOnly`, `None`                                                                          |
-| `double_sided`    | Pad each section onto an odd page (booklet printing)                                                                                       |
-| `header_text`     | Optional banner label (left for 1-D splits, right for no split)                                                                            |
-| `base_font_pt`    | Override body font; defaults to the paper's base size                                                                                      |
-| `grid_font_pt`    | Override grid event-text size                                                                                                              |
+| Field             | Meaning                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `paper`           | `Letter`, `Legal`, `Tabloid`, `SuperB`, `Poster`, `Postcard4x6` (4×6), `Quarter` (4.25×5.5)                                                                                                                              |
+| `format`          | `Typst` (default, → PDF) or `Idml` (Adobe InDesign; see [IDML export](#idml-export))                                                                                                                                     |
+| `content`         | [`ContentMode`](#contentmode--splits) — what to draw + how to split                                                                                                                                                      |
+| `panel_filter`    | `All`, `Workshops`, `Premium`                                                                                                                                                                                            |
+| `include_private` | Render the private view: private panels + unlisted presenters in per-presenter splits (byline credits stay credited-only). Default `false`                                                                               |
+| `orientation`     | `Landscape` or `Portrait`                                                                                                                                                                                                |
+| `color_mode`      | Color or black-and-white output                                                                                                                                                                                          |
+| `columns`         | Override the per-content/per-paper default column count                                                                                                                                                                  |
+| `footer`          | `Full` (timestamps + page number + site), `TimestampOnly`, `SectionPages` (per-section `Label: Page X of Y`), `None`                                                                                                     |
+| `matching_only`   | Presenter×day grids: show only a guest's scheduled days (default `true`); `false` also emits their off days (full grid, none highlighted)                                                                                |
+| `double_sided`    | Pad each section onto an odd page (booklet printing)                                                                                                                                                                     |
+| `header_text`     | Optional banner label (left for 1-D splits, right for no split)                                                                                                                                                          |
+| `base_font_pt`    | Override body font; defaults to the paper's base size                                                                                                                                                                    |
+| `grid_font_pt`    | Override grid event-text size                                                                                                                                                                                            |
+| `fit_grid`        | Fit a full-page grid onto one page when it would overflow: compress rows so it fits one page. Default on for `grid_only`, off otherwise; `false` flows/paginates naturally |
+| `fit_text`        | How panel text fits a compressed cell: `shrink`/`all` (default — scale the font down so all content fits), `name` (keep the name readable, hide overflowing secondary lines from the bottom), `clip`/`none` (no resize; clip) |
+| `show_duration`   | Show each event's duration line in grid cells. Default off on compact (4×6/quarter) papers (the time column conveys it); a panel split across a time-split boundary always shows its full duration |
+| `show_cost`       | Show event cost (e.g. a workshop price) in grid cells (default on; guest schedules usually set `false`) |
+| `logo`            | Banner logo alias/filename from `[logos]`; `none` suppresses it (default `brand`)                                                                                                                                        |
+| `banner_text_pt`  | Override banner label size (default 28pt, 13pt on compact papers)                                                                                                                                                        |
+| `banner_size`     | Banner bar height: `auto` (compact on 4×6/quarter, full otherwise), `compact`, `full`, a length (`0.5in`), or a `%` of page height (`4%`)                                                                                |
+| `footer_size`     | Reserved footer height, same options as `banner_size`                                                                                                                                                                    |
 
 ### Style options
 
@@ -111,6 +121,32 @@ panels is faded, surfacing the "you're booked elsewhere" conflicts the way the
 old schedule-to-html did. `card_gap` accepts a length or the literal `"column"`
 (match the column gutter) and applies only when `cards` is set; the default
 (bar) style keeps Typst's block spacing between panels.
+
+### Micro font
+
+| Field          | Meaning                                                      | Default              |
+| -------------- | ------------------------------------------------------------ | -------------------- |
+| `micro`        | Font family for small text; `none` disables the substitution | brand `micro`        |
+| `micro_style`  | Micro font style                                             | brand `micro_style`  |
+| `micro_weight` | Micro font weight                                            | brand `micro_weight` |
+| `micro_max_pt` | Size (pt) below which text switches to the micro font        | `8.0`                |
+
+The micro font keeps small grid/description text legible where the body face
+gets spindly. It is applied via a `context`-gated `show` rule so it fires even
+for sizes computed at layout time — including the per-cell font condensing that
+`fit_grid` performs.
+
+### QR code
+
+| Field           | Meaning                                                          | Default   |
+| --------------- | ---------------------------------------------------------------- | --------- |
+| `qr_url`        | URL encoded as a QR code in the bottom-right corner of each page | (omitted) |
+| `qr_msg`        | Caption above the QR (heading font); the URL shows below         | (none)    |
+| `qr_size`       | QR code size                                                     | `0.75in`  |
+| `qr_caption_pt` | Caption text size                                                | `9pt`     |
+| `qr_url_pt`     | URL text size                                                    | `7pt`     |
+
+The QR keys take effect only when `qr_url` is set.
 
 ### `ContentMode` + splits
 
@@ -193,6 +229,10 @@ a warning and is skipped.
   the preamble defines `_content-top`, `_page-edge`, `_col-gutter`,
   `_banner-inset`, etc. (`_content-top = _page-edge + _banner-height +
   _banner-gap`), and the generators reference them instead of inline literals.
+  The banner is a fixed-height bar (`_banner-height`), so the reserved margin and
+  the visible colored bar always agree. `typst_lets` takes independent
+  banner/footer compact flags and optional explicit heights, selected per job by
+  `banner_size`/`footer_size` (compact defaults on 4×6/quarter papers).
 - **`fonts`** — font sizes and typeface specs plus a `#let` emitter. Typefaces
   are dictionaries (`_body-font`, `_heading-font`, `_banner-font`) spread into
   text calls; grid text-role sizes (`_name_size`, …) are emitted only when a
@@ -219,7 +259,13 @@ a warning and is skipped.
     stamps in local time, mirroring the widget footer.
 - **`grid`** — `render_schedule_grid` plus `GridRenderConfig` (per-room column
   highlight, per-panel highlight set, corner label, optional max height, empty-cell
-  fill override). Font sizes come from the global `#let`s emitted by `fonts`.
+  fill override, `show_cost`/`show_duration`, `fit_text`). Font sizes come from the
+  global `#let`s emitted by `fonts`. When the grid is compressed to one page
+  (`fit_to_page`), `fit_text` decides how a cell's text fits its shortened row:
+  `Shrink` scales the whole cell font; `Name` keeps the name and drops overflowing
+  secondary lines bottom-up (a Typst loop measuring each appended line); `Clip`
+  leaves it to the cell's `clip`. The corner cell is labelled "Time" (see
+  `document::TIME_CORNER_LABEL`).
 - **`panels`** — `render_time_grouped_panels` (the description column flow:
   time-slot headings, the per-panel left accent bar or bordered card (`PanelStyle`),
   room/time/cost, credits, workshop notices, prerequisites, part/rerun

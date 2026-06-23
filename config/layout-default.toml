@@ -13,44 +13,11 @@
 # Note: the old combined `split` key (none, day, half_day, room, room_day,
 #       presenter, presenter_day) is still accepted as a deprecated alias.
 #
-# Per-job optional keys:
-#   panel_filter   = "all"      # "all" (default), "workshops", "premium"
-#   include_private = false     # true = private view: private panels + unlisted
-#                               # presenters in per-presenter splits (bylines stay
-#                               # credited-only). Default false (public view).
-#   color_mode     = "color"    # "color" (default) or "bw"
-#   footer         = "full"     # "full" (default), "timestamp_only",
-#                               # "section_pages" (per-section "Label: Page X of Y";
-#                               #   needs an active split), "none"
-#   double_sided   = false      # pad each section onto an odd page
-#   matching_only  = true       # presenter×day grids: show only a guest's
-#                               #   scheduled days (default). false = also show
-#                               #   their off days (full day grid, none highlighted).
-#   header_text    = "..."      # left label (section split) / right label (no split)
-#   columns        = 4          # override the content/paper default column count
-#   base_font_pt   = "12pt"     # override base font size (descriptions, etc.)
-#   grid_font_pt   = "8pt"      # override grid event text size
-#   logo           = "brand"    # logo alias/filename from [logos]; "none" suppresses logo
-#   banner_text_pt = "18pt"     # override banner text size (default: 28pt)
-#   fit_grid       = true       # fit a full-page grid onto one page (compress +
-#                               #   condense text). Default: on for grid_only, off otherwise.
-#   micro          = "..."      # micro font family for small text (overrides brand);
-#                               #   "none" disables the small-size substitution for this job
-#   micro_max_pt   = 8.0        # size (pt) below which text switches to the micro font
-#   qr_url         = "https://..."  # encode this URL as a QR code in the bottom-right corner
-#   qr_msg         = "Register Here" # caption above the QR (heading font); URL shows below
-#   qr_size        = "0.75in"   # QR code size (default 0.75in); only used with qr_url
-#   qr_caption_pt  = "9pt"      # caption text size (default 9pt)
-#   qr_url_pt      = "7pt"      # URL text size (default 7pt)
-#
-# Style keys (colors accept hex "#f2f2f2", "luma(95%)", or names like "white"):
-#   page_fill       = "luma(95%)"  # page background tint (default: white)
-#   empty_grid_fill = "white"      # empty grid-cell fill
-#   dim_conflict    = true         # fade panels that clash with a guest's own
-#   cards           = true         # description panels as bordered cards
-#   card_fill       = "white"      # card background when cards = true
-#   column_gap      = "0.25in"     # gutter between body-text columns
-#   card_gap        = "column"     # gap between cards ("column" = column_gap)
+# The full set of per-job keys — content/filter/footer, fonts, banner_size /
+# footer_size, fit_grid / fit_text, show_duration / show_cost, logo, micro_*,
+# qr_*, and the style keys (page_fill, cards, column_gap, dim_conflict, …) — is
+# documented in docs/layout-formats.md ("Configuration" and "Style options").
+# Colors accept hex "#f2f2f2", "luma(95%)", or names; lengths "<number><unit>".
 #
 # Preset and Import System:
 #   Presets are reusable configuration blocks defined with [presets.name].

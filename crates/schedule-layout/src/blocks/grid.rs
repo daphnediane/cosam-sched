@@ -58,6 +58,11 @@ pub(crate) struct GridRenderConfig {
     /// presenter-schedule "you're busy elsewhere" cue from schedule-to-html.
     /// Has no effect without a per-panel highlight set.
     pub dim_conflict: bool,
+    /// Whether to show the per-event duration line in cells.
+    pub show_duration: bool,
+    /// How panel text is fitted into a compressed cell (only matters when
+    /// [`fit_to_page`](Self::fit_to_page) is set).
+    pub fit_text: crate::config::FitText,
 }
 
 // Grid text-role sizes (`_name_size`, `_hdr_size`, …) are emitted globally by
@@ -128,6 +133,8 @@ impl GridRenderConfig {
             show_cost: true,
             empty_fill: None,
             dim_conflict: false,
+            show_duration: true,
+            fit_text: crate::config::FitText::Shrink,
         }
     }
 }
@@ -369,6 +376,30 @@ pub(crate) fn render_schedule_grid(
 // Internal rendering helpers
 // ---------------------------------------------------------------------------
 
+/// Emit a room-header short name that shrinks to stay on a single line.
+///
+/// Narrow columns would otherwise wrap a trailing number (e.g. `Programming 3`
+/// → `Programming` / `3`), wasting a header line. This measures the label at the
+/// nominal `_hdr_size` within the cell width the layout offers and scales the
+/// font down by exactly the overflow ratio when it would not fit, keeping it on
+/// one centered line. Labels that already fit render at the nominal size, so
+/// columns wide enough today are unchanged.
+///
+/// `name` must already be escaped; `weight` is the `, weight: "bold"` fragment
+/// (or empty) shared with the cell's hotel line. `hotel_suffix` is the optional
+/// hotel-room line — inline content beginning with a `\` linebreak — kept in the
+/// *same* paragraph so the name→hotel spacing matches the original tight leading
+/// (separate blocks would add block spacing between them).
+fn fit_header_name(name: &str, weight: &str, hotel_suffix: &str) -> String {
+    format!(
+        "#layout(_sz => {{ \
+         let _m = measure(text(size: _hdr_size{weight})[{name}]); \
+         let _s = if _m.width > _sz.width and _m.width > 0pt {{ _hdr_size * (_sz.width / _m.width) }} \
+         else {{ _hdr_size }}; \
+         align(center)[#text(fill: white, size: _s{weight})[{name}]{hotel_suffix}] }})",
+    )
+}
+
 fn render_header_row(
     out: &mut String,
     layout: &GridLayout,
@@ -405,8 +436,9 @@ fn render_header_row(
             ""
         };
 
-        // Build cell content: short name + optional hotel room name below
-        let hotel_line = if config.show_hotel_room && !hotel_room.is_empty() {
+        // Build cell content: short name (shrink-to-fit one line) with the
+        // optional hotel room name on a second line in the same paragraph.
+        let hotel_suffix = if config.show_hotel_room && !hotel_room.is_empty() {
             format!(
                 " \\ #text(fill: white, size: _hotel_size, style: \"italic\")[{}]",
                 escape_typst(hotel_room)
@@ -416,12 +448,9 @@ fn render_header_row(
         };
 
         out.push_str(&format!(
-            "  grid.cell(fill: {fill}, inset: _hdr_inset)\
-             [#align(center)[#text(fill: white, size: _hdr_size{weight})[{name}]{hotel}]],\n",
+            "  grid.cell(fill: {fill}, inset: _hdr_inset)[{name}],\n",
             fill = fill,
-            weight = weight,
-            name = escape_typst(short_name),
-            hotel = hotel_line,
+            name = fit_header_name(&escape_typst(short_name), weight, &hotel_suffix),
         ));
     }
 }
@@ -611,7 +640,11 @@ fn render_event_cell(
     } else {
         format!("{} min", d)
     };
-    let dur_str = if dur_label.is_empty() {
+    // Duration is dropped when `show_duration` is off (e.g. compact papers, where
+    // the time column conveys it) — but a panel split across a time-split boundary
+    // always shows its full duration, since its truncated cell can't otherwise.
+    let show_dur = config.show_duration || cell.truncated_start || cell.truncated_end;
+    let dur_str = if dur_label.is_empty() || !show_dur {
         String::new()
     } else {
         format!(" \\ #text(size: _secondary_size)[{}]", dur_label)
@@ -670,44 +703,70 @@ fn render_event_cell(
         left_stroke
     };
 
-    // The cell's text content (continuation note, title + cost, credits, duration).
-    let content = format!(
-        "{cont_from}\
-         #text(size: _name_size, weight: \"bold\")[{name}]{cost}{credits}{dur}",
+    // The cell's text splits into an always-shown base (continuation note, title +
+    // cost) and droppable secondary lines (credits, duration) that the `Name` fit
+    // mode can hide from the bottom up.
+    let base = format!(
+        "{cont_from}#text(size: _name_size, weight: \"bold\")[{name}]{cost}",
         cont_from = cont_from_str,
         name = name,
         cost = cost_suffix,
-        credits = credits_str,
-        dur = dur_str,
     );
+    let droppable: Vec<&str> = [credits_str.as_str(), dur_str.as_str()]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
+    let content = format!("{base}{}", droppable.concat());
 
-    // In fit-to-page grids, equal `1fr` rows can be shorter than a text-heavy
-    // cell needs. Rather than geometrically scaling (which would waste the cell's
-    // width and shrink the text far more than necessary), reduce the font size so
-    // the text reflows across the full width and only shrinks as much as the
-    // height demands — the Typst analog of the old HTML grid condensing the font.
-    //
-    // Height falls roughly with the square of the font scale (fewer, shorter
-    // lines), so estimate the scale as `sqrt(avail / needed)` and refine once by
-    // re-measuring. `_mk(_sf)` rebuilds the content with every text size scaled by
-    // `_sf`; cells that already fit keep `_sf = 1`.
+    use crate::config::FitText;
     let body = if config.fit_to_page {
-        let scaled = content
-            .replace("_name_size", "_name_size * _sf")
-            .replace("_secondary_size", "_secondary_size * _sf")
-            .replace("_cost_size", "_cost_size * _sf");
-        format!(
-            "#layout(_c => {{\n      \
-               let _mk = (_sf) => [{scaled}]\n      \
-               let _h1 = measure(block(width: _c.width)[#_mk(1.0)]).height\n      \
-               let _s = if _c.height > 0pt and _h1 > _c.height {{ \
-                 calc.sqrt(_c.height / _h1) }} else {{ 1.0 }}\n      \
-               let _h2 = measure(block(width: _c.width)[#_mk(_s)]).height\n      \
-               let _s = if _c.height > 0pt and _h2 > _c.height {{ \
-                 _s * calc.sqrt(_c.height / _h2) }} else {{ _s }}\n      \
-               block(width: _c.width)[#_mk(_s)]\n    \
-             }})",
-        )
+        match config.fit_text {
+            // Scale the whole cell's font down so all content fits the (compressed)
+            // row. Height falls roughly with the square of the font scale, so
+            // estimate `sqrt(avail / needed)` and refine once by re-measuring;
+            // cells that already fit keep `_sf = 1`.
+            FitText::Shrink => {
+                let scaled = content
+                    .replace("_name_size", "_name_size * _sf")
+                    .replace("_secondary_size", "_secondary_size * _sf")
+                    .replace("_cost_size", "_cost_size * _sf");
+                format!(
+                    "#layout(_c => {{\n      \
+                       let _mk = (_sf) => [{scaled}]\n      \
+                       let _h1 = measure(block(width: _c.width)[#_mk(1.0)]).height\n      \
+                       let _s = if _c.height > 0pt and _h1 > _c.height {{ \
+                         calc.sqrt(_c.height / _h1) }} else {{ 1.0 }}\n      \
+                       let _h2 = measure(block(width: _c.width)[#_mk(_s)]).height\n      \
+                       let _s = if _c.height > 0pt and _h2 > _c.height {{ \
+                         _s * calc.sqrt(_c.height / _h2) }} else {{ _s }}\n      \
+                       block(width: _c.width)[#_mk(_s)]\n    \
+                     }})",
+                )
+            }
+            // Keep the name at full size; append each secondary line only while it
+            // still fits the cell height, dropping the rest from the bottom.
+            FitText::Name if !droppable.is_empty() => {
+                let arr = droppable
+                    .iter()
+                    .map(|d| format!("[{d}]"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "#layout(_c => {{\n      \
+                       let _shown = [{base}]\n      \
+                       for _d in ({arr},) {{\n        \
+                         let _t = [#_shown#_d]\n        \
+                         if measure(block(width: _c.width)[#_t]).height <= _c.height \
+                           {{ _shown = _t }} else {{ break }}\n      \
+                       }}\n      \
+                       block(width: _c.width)[#_shown]\n    \
+                     }})",
+                )
+            }
+            // `Name` with nothing droppable, or `Clip`: render as-is and let the
+            // cell's `clip: true` trim any overflow.
+            FitText::Name | FitText::Clip => content.clone(),
+        }
     } else {
         content
     };
