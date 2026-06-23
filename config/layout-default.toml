@@ -46,6 +46,7 @@
 # Style keys (colors accept hex "#f2f2f2", "luma(95%)", or names like "white"):
 #   page_fill       = "luma(95%)"  # page background tint (default: white)
 #   empty_grid_fill = "white"      # empty grid-cell fill
+#   dim_conflict    = true         # fade panels that clash with a guest's own
 #   cards           = true         # description panels as bordered cards
 #   card_fill       = "white"      # card background when cards = true
 #   column_gap      = "0.25in"     # gutter between body-text columns

@@ -111,6 +111,7 @@ pub fn generate(
         gap: card_gap,
     };
     let empty_grid_fill = config.empty_grid_fill_expr();
+    let dim_conflict = config.dim_conflict;
 
     // The header bar is always present (fixed top margin); widen the bottom only
     // when a footer is shown (the preamble's bottom margin is tuned for
@@ -247,6 +248,7 @@ pub fn generate(
                     color_mode,
                     empty_grid_fill.as_deref(),
                     grid_fit,
+                    dim_conflict,
                 ));
             }
             ContentMode::Both { .. } => {
@@ -270,6 +272,7 @@ pub fn generate(
                     color_mode,
                     empty_grid_fill.as_deref(),
                     grid_fit,
+                    dim_conflict,
                 ));
                 doc.push_str("])\n");
 
@@ -332,6 +335,7 @@ fn render_grid(
     color_mode: ColorMode,
     empty_fill: Option<&str>,
     fit_page: bool,
+    dim_conflict: bool,
 ) -> String {
     // Grid font sizes are global `#let`s from the preamble (`fonts::typst_lets`).
     let mut cfg = GridRenderConfig::full_page("", section.highlight_room);
@@ -339,6 +343,7 @@ fn render_grid(
     cfg.highlight_panel_ids = section.highlight_panel_ids.clone();
     cfg.empty_fill = empty_fill.map(str::to_string);
     cfg.fit_to_page = fit_page;
+    cfg.dim_conflict = dim_conflict;
     let layout = GridLayout::compute(
         &section.grid_panels,
         data,

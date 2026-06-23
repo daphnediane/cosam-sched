@@ -351,6 +351,30 @@ import QRCode from 'qrcode';
     return '#' + toHex(newR) + toHex(newG) + toHex(newB);
   }
 
+  // Whether CSS relative-color syntax (e.g. `oklch(from … l c h)`) is usable.
+  // Cached: the answer can't change within a page load.
+  let _relColorSupport;
+  function _supportsRelativeColor() {
+    if (_relColorSupport === undefined) {
+      _relColorSupport = typeof CSS !== 'undefined' && !!CSS.supports &&
+        CSS.supports('color', 'oklch(from red 0.5 0.1 h)');
+    }
+    return _relColorSupport;
+  }
+
+  // Soft pastel tint of an accent color, matching the Typst `pastel-tint`: keep
+  // the hue but pin lightness and chroma in OKLCh, so every category tints to
+  // the same brightness *and* saturation. Uses CSS relative-color syntax where
+  // available (the browser gamut-maps for us); otherwise falls back to the
+  // HSL-lightness pin in `_lightenColor` (hue kept, saturation inherited).
+  function _pastelTint(color, lightness = 0.92, chroma = 0.1) {
+    if (!color) return color;
+    if (_supportsRelativeColor()) {
+      return `oklch(from ${color} ${lightness} ${chroma} h)`;
+    }
+    return _lightenColor(color, lightness);
+  }
+
   // Normalized, non-empty capacity string for an event, or '' when absent.
   function capacityText(evt) {
     if (evt.capacity === undefined || evt.capacity === null) return '';
@@ -3779,9 +3803,9 @@ import QRCode from 'qrcode';
             for (const [slug, color] of this._panelTypeColors) {
               if (event.classList.contains(prefix + 'panel-type-' + slug)) {
                 event.style.borderLeftColor = color;
-                // For starred events, also set a lighter background version of the accent color
+                // For starred events, also set a pastel background version of the accent color
                 if (event.classList.contains('starred')) {
-                  event.style.backgroundColor = _lightenColor(color);
+                  event.style.backgroundColor = _pastelTint(color);
                 }
                 break;
               }

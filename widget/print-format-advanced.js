@@ -37,6 +37,66 @@
     return e;
   }
 
+  // Convert a hex color to HSL, pin its lightness to a pastel value, return hex.
+  // Fallback for `_pastelTint` on browsers without CSS relative-color syntax;
+  // mirrors the same helper in cosam-calendar.js (the two plugins are
+  // independent IIFEs and keep their own copies of small utilities).
+  function _lightenColor(hex, targetLightness = 0.92) {
+    if (!hex || typeof hex !== 'string') return hex;
+    hex = hex.replace('#', '');
+    if (hex.length !== 6) return '#' + hex;
+
+    const r = parseInt(hex.substring(0, 2), 16) / 255;
+    const g = parseInt(hex.substring(2, 4), 16) / 255;
+    const b = parseInt(hex.substring(4, 6), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h, s; const l = targetLightness;
+    if (max === min) {
+      h = s = 0;
+    } else {
+      const d = max - min;
+      const mid = (max + min) / 2;
+      s = mid > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+        case g: h = ((b - r) / d + 2) / 6; break;
+        default: h = ((r - g) / d + 4) / 6; break;
+      }
+    }
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const toHex = (x) => Math.round(x * 255).toString(16).padStart(2, '0');
+    return '#' + toHex(hue2rgb(p, q, h + 1 / 3)) + toHex(hue2rgb(p, q, h)) + toHex(hue2rgb(p, q, h - 1 / 3));
+  }
+
+  let _relColorSupport;
+  function _supportsRelativeColor() {
+    if (_relColorSupport === undefined) {
+      _relColorSupport = typeof CSS !== 'undefined' && !!CSS.supports &&
+        CSS.supports('color', 'oklch(from red 0.5 0.1 h)');
+    }
+    return _relColorSupport;
+  }
+
+  // Soft pastel tint of an accent color, matching the Typst `pastel-tint`: keep
+  // the hue but pin lightness and chroma in OKLCh. CSS relative-color syntax
+  // where available, else the HSL-lightness fallback above.
+  function _pastelTint(color, lightness = 0.92, chroma = 0.1) {
+    if (!color) return color;
+    if (_supportsRelativeColor()) {
+      return `oklch(from ${color} ${lightness} ${chroma} h)`;
+    }
+    return _lightenColor(color, lightness);
+  }
+
   function formatTime(isoStr) {
     if (!isoStr) return '';
     const h = parseInt(isoStr.substring(11, 13), 10);
@@ -932,8 +992,12 @@ ${dynamicCss}</style></head><body>${printContainer.outerHTML}</body></html>`);
       const primary = colors.primary || '#00bcdd';
       vars.push(`--cosam-print-header-bg: ${primary};`);
       vars.push(`--cosam-accent: ${primary};`);
-      vars.push(`--cosam-accent-light: color-mix(in srgb, ${primary} 15%, #ffffff);`);
-      vars.push(`--cosam-print-time-col-bg: color-mix(in srgb, ${primary} 15%, #ffffff);`);
+      // Pastel accent tint (matches the grid highlight and the Typst layout).
+      // NOTE: --cosam-print-time-col-bg has no consumer after the print-plugin
+      // redesign — kept in sync so the time column is correct once rewired.
+      const accentLight = _pastelTint(primary);
+      vars.push(`--cosam-accent-light: ${accentLight};`);
+      vars.push(`--cosam-print-time-col-bg: ${accentLight};`);
       vars.push(`--cosam-print-gridline-color: #d2d2d2;`);
       vars.push(`--cosam-print-empty-bg: #fafafa;`);
       vars.push(`--cosam-print-break-bg: #f0f0f0;`);

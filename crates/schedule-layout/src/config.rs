@@ -381,6 +381,11 @@ pub struct LayoutConfig {
     /// Fill for empty (no-event) grid cells. Set this to keep empties from
     /// blending into a tinted [`page_fill`]. `None` = the built-in light gray.
     pub empty_grid_fill: Option<String>,
+    /// Fade panels that conflict with the highlighted selection in presenter
+    /// schedules: a non-highlighted event overlapping one of the guest's own
+    /// panels is dimmed, the "you're busy elsewhere" cue from schedule-to-html.
+    /// `false` (the default) leaves conflicting panels at full strength.
+    pub dim_conflict: bool,
     /// Render description panels as bordered cards (colored left spine + border)
     /// instead of the original full-height left accent bar.
     pub cards: bool,

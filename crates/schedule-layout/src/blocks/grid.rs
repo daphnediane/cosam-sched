@@ -52,6 +52,12 @@ pub(crate) struct GridRenderConfig {
     /// the built-in light gray ([`EMPTY_SLOT_LUMA`]); set it to keep empty cells
     /// from blending into a tinted page background.
     pub empty_fill: Option<String>,
+    /// Fade panels that conflict with the highlighted selection. When set, any
+    /// non-highlighted event whose time range overlaps a highlighted panel
+    /// ([`highlight_panel_ids`](Self::highlight_panel_ids)) is dimmed — the
+    /// presenter-schedule "you're busy elsewhere" cue from schedule-to-html.
+    /// Has no effect without a per-panel highlight set.
+    pub dim_conflict: bool,
 }
 
 // Grid text-role sizes (`_name_size`, `_hdr_size`, …) are emitted globally by
@@ -74,10 +80,22 @@ const BREAK_TEXT_PT: f64 = 5.5;
 const EMPTY_SLOT_LUMA: u16 = 245;
 /// Grey level of a break row's fill.
 const BREAK_FILL_LUMA: u16 = 235;
-/// Lighten percentage for a highlighted event cell's fill.
-const HIGHLIGHT_FILL_LIGHTEN: u16 = 90;
-/// Lighten percentage for an empty slot in the highlighted room column.
-const HIGHLIGHT_EMPTY_LIGHTEN: u16 = 78;
+/// Oklch lightness (%) of a highlighted event cell's fill. The fill tints the
+/// panel's own type color (the left accent bar) to this lightness while pinning
+/// its chroma (`_pastel-chroma` in the preamble), so every highlighted panel
+/// reads as a soft pastel wash of its category color with even perceived
+/// brightness *and* even saturation across hues — unlike HSL, which inherits
+/// each source color's saturation. See [`pastel-tint`] in the preamble.
+const HIGHLIGHT_FILL_L: u16 = 92;
+/// Oklch lightness (%) of an empty slot in the highlighted room column. Empty
+/// cells have no panel color, so they tint the brand accent instead, set darker
+/// than [`HIGHLIGHT_FILL_L`] so empties recede behind the panel cells.
+const HIGHLIGHT_EMPTY_L: u16 = 85;
+/// How strongly a conflicting (dimmed) panel is faded toward the page, as a
+/// percentage (higher = more faded). Applied as a translucent white veil over
+/// the cell content plus a matching alpha on the panel-type accent stroke, so
+/// the whole cell recedes like the old schedule-to-html `opacity` treatment.
+const DIM_CONFLICT_FADE: u16 = 70;
 /* Zig-zag constants - currently unused, reserved for future torn-edge effect:
 const ZIGZAG_TOOTH_PT: f64 = 8.0;
 const ZIGZAG_HEIGHT_PT: f64 = 6.0;
@@ -109,6 +127,7 @@ impl GridRenderConfig {
             show_hotel_room: true,
             show_cost: true,
             empty_fill: None,
+            dim_conflict: false,
         }
     }
 }
@@ -291,10 +310,39 @@ pub(crate) fn render_schedule_grid(
     // --- Header row ---
     render_header_row(&mut out, layout, data, config);
 
+    // Row ranges occupied by highlighted panels. A non-highlighted event whose
+    // own range overlaps one of these conflicts with the selection and is dimmed
+    // when `dim_conflict` is set. Empty unless both the flag and a per-panel
+    // highlight set are present, so plain room/full-day grids are unaffected.
+    let conflict_ranges: Vec<(usize, usize)> = if config.dim_conflict {
+        config
+            .highlight_panel_ids
+            .as_ref()
+            .map(|ids| {
+                layout
+                    .cells
+                    .iter()
+                    .filter(|c| ids.contains(&c.panel.id))
+                    .map(|c| (c.row_start, c.row_end))
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     // --- Time slot rows (trailing end-only slots dropped) ---
     for (row_idx, slot) in layout.time_slots.iter().take(body_slots).enumerate() {
         render_time_cell(&mut out, slot, config);
-        render_room_cells(&mut out, layout, data, color_mode, config, row_idx, n_rooms);
+        render_room_cells(
+            &mut out,
+            layout,
+            data,
+            color_mode,
+            config,
+            row_idx,
+            &conflict_ranges,
+        );
     }
 
     out.push_str(")\n"); // close grid
@@ -405,9 +453,9 @@ fn render_room_cells(
     color_mode: ColorMode,
     config: &GridRenderConfig,
     row_idx: usize,
-    n_rooms: usize,
+    conflict_ranges: &[(usize, usize)],
 ) {
-    for col_idx in 0..n_rooms {
+    for col_idx in 0..layout.room_order.len() {
         let room_id = layout.room_order[col_idx];
         let is_highlighted = config.highlight_room_uid == Some(room_id);
 
@@ -424,14 +472,14 @@ fn render_room_cells(
                 .highlight_panel_ids
                 .as_ref()
                 .is_some_and(|ids| ids.contains(&cell.panel.id));
-            render_event_cell(
-                out,
-                cell,
-                data,
-                color_mode,
-                config,
-                is_highlighted || panel_highlighted,
-            );
+            let cell_highlighted = is_highlighted || panel_highlighted;
+            // Dim a non-highlighted cell whose time range overlaps a highlighted
+            // panel — a half-open `[start, end)` overlap test.
+            let dimmed = !cell_highlighted
+                && conflict_ranges
+                    .iter()
+                    .any(|&(s, e)| cell.row_start < e && s < cell.row_end);
+            render_event_cell(out, cell, data, color_mode, config, cell_highlighted, dimmed);
         } else {
             render_empty_or_spanned_cell(
                 out,
@@ -439,7 +487,7 @@ fn render_room_cells(
                 config,
                 row_idx,
                 col_idx,
-                n_rooms,
+                layout.room_order.len(),
                 is_highlighted,
             );
         }
@@ -453,6 +501,7 @@ fn render_event_cell(
     color_mode: ColorMode,
     config: &GridRenderConfig,
     is_highlighted: bool,
+    dimmed: bool,
 ) {
     let panel = &cell.panel;
     let tz = data.meta.timezone.as_str();
@@ -465,19 +514,35 @@ fn render_event_cell(
         .map(|c| c.hex)
         .unwrap_or_default();
 
+    // Highlighted cells tint their own panel-type color (the left accent bar) so
+    // the wash matches the category — golden panel, golden highlight. Cells with
+    // no type color fall back to the brand accent.
     let fill = if is_highlighted {
-        format!("brand-primary.lighten({}%)", HIGHLIGHT_FILL_LIGHTEN)
+        let base = if color_str.is_empty() {
+            "brand-primary".to_string()
+        } else {
+            format!("rgb(\"{color_str}\")")
+        };
+        format!("pastel-tint({base}, {}%)", HIGHLIGHT_FILL_L)
     } else {
         "white".to_string()
+    };
+
+    // Panel-type accent paint, faded to a matching alpha when the cell is dimmed
+    // so the spine recedes with the rest of the (veiled) content.
+    let accent_paint = if dimmed {
+        format!("rgb(\"{color}\").transparentize({fade}%)", color = color_str, fade = DIM_CONFLICT_FADE)
+    } else {
+        format!("rgb(\"{color}\")", color = color_str)
     };
 
     let left_stroke = if color_str.is_empty() {
         String::new()
     } else {
         format!(
-            ", stroke: (left: {accent}pt + rgb(\"{color}\"), rest: none)",
+            ", stroke: (left: {accent}pt + {paint}, rest: none)",
             accent = ACCENT_WIDTH_PT,
-            color = color_str,
+            paint = accent_paint,
         )
     };
 
@@ -595,9 +660,9 @@ fn render_event_cell(
         // Add the left accent if present
         if !color_str.is_empty() {
             parts.push(format!(
-                "left: {accent}pt + rgb(\"{color}\")",
+                "left: {accent}pt + {paint}",
                 accent = ACCENT_WIDTH_PT,
-                color = color_str
+                paint = accent_paint,
             ));
         }
         format!(", stroke: ({})", parts.join(", "))
@@ -647,16 +712,36 @@ fn render_event_cell(
         content
     };
 
-    out.push_str(&format!(
-        "  grid.cell(fill: {fill}{rowspan}{stroke})\
-         [#block(clip: true, width: 100%, height: 100%, inset: _cell_inset, \
-         stroke: (bottom: {rule_pt}pt + luma({rule_luma})))[{body}]],\n",
-        fill = fill,
-        rowspan = rowspan_arg,
-        stroke = trunc_stroke,
+    let inner = format!(
+        "#block(clip: true, width: 100%, height: 100%, inset: _cell_inset, \
+         stroke: (bottom: {rule_pt}pt + luma({rule_luma})))[{body}]",
         rule_pt = CELL_RULE_PT,
         rule_luma = CELL_RULE_LUMA,
         body = body,
+    );
+
+    // Conflict dimming: overlay a translucent white veil so the whole cell
+    // (text and rules) recedes uniformly, mirroring the old `opacity` fade. The
+    // accent spine is faded separately via `accent_paint` (it lives on the grid
+    // cell stroke, outside this veil).
+    let cell_body = if dimmed {
+        format!(
+            "#block(width: 100%, height: 100%)[{inner}\
+             #place(top + left, rect(width: 100%, height: 100%, \
+             fill: white.transparentize({uncovered}%)))]",
+            inner = inner,
+            uncovered = 100 - DIM_CONFLICT_FADE,
+        )
+    } else {
+        inner
+    };
+
+    out.push_str(&format!(
+        "  grid.cell(fill: {fill}{rowspan}{stroke})[{cell_body}],\n",
+        fill = fill,
+        rowspan = rowspan_arg,
+        stroke = trunc_stroke,
+        cell_body = cell_body,
     ));
 }
 
@@ -696,10 +781,10 @@ fn render_empty_or_spanned_cell(
             ));
         }
     } else if is_highlighted {
-        // Empty slot in highlighted room — darker muted tint to fade behind panels
+        // Empty slot in highlighted room — darker pastel brand tint to fade behind panels
         out.push_str(&format!(
-            "  grid.cell(fill: brand-primary.lighten({}%))[],\n",
-            HIGHLIGHT_EMPTY_LIGHTEN
+            "  grid.cell(fill: pastel-tint(brand-primary, {}%))[],\n",
+            HIGHLIGHT_EMPTY_L
         ));
     } else {
         // Empty slot — configurable fill, defaulting to the built-in light grey.
@@ -750,5 +835,87 @@ mod tests {
         assert_eq!(cfg.day_label, "Friday");
         assert!(!cfg.fit_to_page);
         assert_eq!(cfg.credits_max_chars, 0);
+        assert!(!cfg.dim_conflict);
+    }
+
+    // --- Conflict-dim / highlight rendering ---------------------------------
+
+    use crate::model::{Meta, Panel, Room, ScheduleData};
+    use crate::timegrid::{GridCell, TimeSlot};
+    use std::collections::HashSet;
+
+    /// Two rooms, two overlapping panels in a single time slot: `KEEP` (the
+    /// guest's own, highlighted) in room 0 and `OTHER` (a conflict) in room 1.
+    fn conflict_layout() -> (GridLayout, ScheduleData) {
+        let cell = |id: &str, col: usize| GridCell {
+            panel: Panel {
+                id: id.into(),
+                name: format!("Panel {id}"),
+                ..Panel::default()
+            },
+            col,
+            row_start: 0,
+            row_end: 1,
+            truncated_start: false,
+            truncated_end: false,
+        };
+        let layout = GridLayout {
+            room_order: vec![0, 1],
+            time_slots: vec![TimeSlot {
+                epoch: 0,
+                key: "2026-06-26T09:00".into(),
+                label: "9 AM".into(),
+                is_major: true,
+                day_label: None,
+            }],
+            cells: vec![cell("KEEP", 0), cell("OTHER", 1)],
+            break_cells: vec![],
+            window_start: None,
+            window_end: None,
+        };
+        let data = ScheduleData {
+            meta: Meta::default(),
+            rooms: vec![
+                Room {
+                    uid: 0,
+                    ..Room::default()
+                },
+                Room {
+                    uid: 1,
+                    ..Room::default()
+                },
+            ],
+            ..ScheduleData::default()
+        };
+        (layout, data)
+    }
+
+    #[test]
+    fn test_dim_conflict_fades_overlapping_panel() {
+        let (layout, data) = conflict_layout();
+        let mut cfg = GridRenderConfig::full_page("", None);
+        cfg.highlight_panel_ids = Some(HashSet::from(["KEEP".to_string()]));
+        cfg.dim_conflict = true;
+        let out = render_schedule_grid(&layout, &data, ColorMode::Color, &cfg);
+        // The highlighted cell uses the even-luma tint; the conflicting cell is
+        // veiled with a translucent white overlay.
+        assert!(out.contains("pastel-tint("), "highlight should use pastel-tint");
+        assert!(
+            out.contains("white.transparentize("),
+            "conflicting cell should be dimmed with a white veil"
+        );
+    }
+
+    #[test]
+    fn test_dim_conflict_off_leaves_panels_opaque() {
+        let (layout, data) = conflict_layout();
+        let mut cfg = GridRenderConfig::full_page("", None);
+        cfg.highlight_panel_ids = Some(HashSet::from(["KEEP".to_string()]));
+        // dim_conflict defaults to false.
+        let out = render_schedule_grid(&layout, &data, ColorMode::Color, &cfg);
+        assert!(
+            !out.contains("white.transparentize("),
+            "no veil should be emitted when dim_conflict is unset"
+        );
     }
 }

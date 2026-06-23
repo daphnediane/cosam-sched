@@ -98,13 +98,17 @@ default rather than emitting broken Typst.
 | ----------------- | ------------------------- | ------------- |
 | `page_fill`       | Page background           | white         |
 | `empty_grid_fill` | Empty grid-cell fill      | `luma(245)`   |
+| `dim_conflict`    | Fade conflicting panels   | `false`       |
 | `cards`           | Cards vs. left accent bar | `false`       |
 | `card_fill`       | Card background           | `white`       |
 | `column_gap`      | Body-column gutter        | `0.2in`       |
 | `card_gap`        | Gap between cards         | column gutter |
 
 Set `empty_grid_fill` when `page_fill` is tinted, so empty cells stay distinct
-from the background. `card_gap` accepts a length or the literal `"column"`
+from the background. `dim_conflict` applies only to presenter schedules: a
+non-highlighted panel whose time overlaps one of the guest's own (highlighted)
+panels is faded, surfacing the "you're booked elsewhere" conflicts the way the
+old schedule-to-html did. `card_gap` accepts a length or the literal `"column"`
 (match the column gutter) and applies only when `cards` is set; the default
 (bar) style keeps Typst's block spacing between panels.
 

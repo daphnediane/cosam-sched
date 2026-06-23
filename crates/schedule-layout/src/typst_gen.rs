@@ -86,6 +86,8 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
 {micro_rule}
 #let brand-primary = rgb("{primary}")
 #let brand-dark = rgb("{dark_grey}")
+#let _pastel-chroma = 0.1
+#let pastel-tint = (_col, _l) => {{ let (_, _, _h, _a) = oklch(_col).components(); oklch(_l, _pastel-chroma, _h, _a) }}
 "#,
         geometry_lets = geometry_lets,
         font_lets = font_lets,

@@ -220,6 +220,8 @@ pub struct JobConfig {
     pub page_fill: Option<String>,
     /// Fill for empty grid cells (keeps them from blending into a tinted page).
     pub empty_grid_fill: Option<String>,
+    /// Fade panels that conflict with a presenter schedule's highlighted panels.
+    pub dim_conflict: Option<bool>,
     /// Render description panels as bordered cards instead of the left-bar style.
     pub cards: Option<bool>,
     /// Card background color when `cards` is set (defaults to white).
@@ -330,6 +332,9 @@ impl JobConfig {
         }
         if other.empty_grid_fill.is_some() {
             self.empty_grid_fill = other.empty_grid_fill.clone();
+        }
+        if other.dim_conflict.is_some() {
+            self.dim_conflict = other.dim_conflict;
         }
         if other.cards.is_some() {
             self.cards = other.cards;
@@ -724,6 +729,7 @@ impl JobConfig {
             grid_font_pt: self.grid_font_pt.clone(),
             page_fill: self.page_fill.clone(),
             empty_grid_fill: self.empty_grid_fill.clone(),
+            dim_conflict: self.dim_conflict.unwrap_or(false),
             cards: self.cards.unwrap_or(false),
             card_fill: self.card_fill.clone(),
             column_gap: self.column_gap.clone(),
@@ -805,6 +811,7 @@ pub fn apply_layout_arg(job: &mut JobConfig, key: &str, value: Option<&str>) -> 
         "grid_font_pt" => job.grid_font_pt = Some(str_val()?),
         "page_fill" => job.page_fill = Some(str_val()?),
         "empty_grid_fill" => job.empty_grid_fill = Some(str_val()?),
+        "dim_conflict" => job.dim_conflict = Some(parse_layout_bool(key, value)?),
         "cards" => job.cards = Some(parse_layout_bool(key, value)?),
         "card_fill" => job.card_fill = Some(str_val()?),
         "column_gap" => job.column_gap = Some(str_val()?),
