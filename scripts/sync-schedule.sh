@@ -132,6 +132,27 @@ main() {
         --export-layout "${generated_dir}" ||
         fail "cosam-convert failed"
 
+    # Generate 4-up booklets for any quarter-sized PDFs
+    local quarter_dir="${generated_dir}/quarter"
+    if [[ -d "${quarter_dir}" ]]; then
+        local booklet_dir="${generated_dir}/booklet"
+        cmd mkdir -p "${booklet_dir}"
+        for pdf in "${quarter_dir}"/*.pdf; do
+            [[ -f "${pdf}" ]] || continue
+            local basename=$(basename "${pdf}" .pdf)
+            local output="${booklet_dir}/${basename%-quarter}-booklet.pdf"
+            echo "Creating 4-up booklet: ${pdf} -> ${output}"
+            cmd python3 "${SCRIPT_DIR}/generate_booklet_pages.py" "${pdf}" "${output}" ||
+                echo "Warning: failed to create booklet for ${basename}"
+            
+            # Also create folded version
+            local folded_output="${booklet_dir}/${basename%-quarter}-folded.pdf"
+            echo "Creating 4-up folded booklet: ${pdf} -> ${folded_output}"
+            cmd python3 "${SCRIPT_DIR}/generate_booklet_folded.py" "${pdf}" "${folded_output}" ||
+                echo "Warning: failed to create folded booklet for ${basename}"
+        done
+    fi
+
     # Sync generated/ to OneDrive. --relative preserves the generated/ path
     # component at the destination; --delete-after only prunes within that tree,
     # leaving other files in sched_base alone.
