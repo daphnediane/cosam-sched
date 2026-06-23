@@ -4,7 +4,7 @@
 # Every job is a configuration of the unified layout builder (one multi-section
 # document per job). The legacy `format` key is no longer recognized.
 #
-# Paper keys:        letter, legal, tabloid, super_b, poster, postcard
+# Paper keys:        letter, legal, tabloid, super_b, poster, postcard, quarter
 # Content keys:      both (grid + descriptions), grid_only, description_only, panel_list
 # Section split keys: none (default), room, presenter
 # Time split keys:   none (default), day, half_day, timeline (split on SPLIT/timeline entries)

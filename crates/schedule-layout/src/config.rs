@@ -35,6 +35,8 @@ pub enum PaperSize {
     /// Custom 30"×20" poster. Supports both portrait and landscape orientations.
     Poster,
     Postcard4x6,
+    /// Quarter letter (4.25"×5.5", half the width and height of letter).
+    Quarter,
 }
 
 impl PaperSize {
@@ -47,6 +49,7 @@ impl PaperSize {
             PaperSize::SuperB => (330.2, 482.6),
             PaperSize::Poster => (508.0, 762.0), // 20"×30" portrait basis
             PaperSize::Postcard4x6 => (101.6, 152.4),
+            PaperSize::Quarter => (107.95, 139.7), // 4.25"×5.5"
         }
     }
 
@@ -61,6 +64,7 @@ impl PaperSize {
             PaperSize::SuperB => Some("iso-b3"),
             PaperSize::Poster => None,
             PaperSize::Postcard4x6 => Some("a6"),
+            PaperSize::Quarter => None,
         }
     }
 
@@ -73,6 +77,7 @@ impl PaperSize {
             PaperSize::SuperB => "super-b",
             PaperSize::Poster => "poster",
             PaperSize::Postcard4x6 => "postcard",
+            PaperSize::Quarter => "quarter",
         }
     }
 
@@ -105,6 +110,7 @@ impl PaperSize {
             }
             PaperSize::Poster => 5,
             PaperSize::Postcard4x6 => 1,
+            PaperSize::Quarter => 1,
         }
     }
 
@@ -131,6 +137,7 @@ impl PaperSize {
                 }
             }
             PaperSize::Postcard4x6 => 2,
+            PaperSize::Quarter => 2,
         }
     }
 

@@ -164,7 +164,7 @@ pub struct LayoutDefaults {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JobConfig {
-    /// Paper size: "letter", "legal", "tabloid", "super_b", "poster", "postcard"
+    /// Paper size: "letter", "legal", "tabloid", "super_b", "poster", "postcard", "quarter"
     pub paper: String,
     /// Output format: "typst" (default, PDF via Typst) or "idml" (Adobe InDesign).
     /// IDML requires building with the `idml` feature. Optional.
@@ -435,11 +435,12 @@ pub(crate) fn parse_paper(s: &str) -> PaperSize {
         "super_b" | "superb" => PaperSize::SuperB,
         "poster" => PaperSize::Poster,
         "postcard" => PaperSize::Postcard4x6,
+        "quarter" => PaperSize::Quarter,
         "" => PaperSize::Tabloid,
         other => {
             eprintln!(
                 "warning: unknown paper '{other}'; expected one of: letter, legal, tabloid, \
-                 super_b, poster, postcard — using 'tabloid'"
+                 super_b, poster, postcard, quarter — using 'tabloid'"
             );
             PaperSize::Tabloid
         }

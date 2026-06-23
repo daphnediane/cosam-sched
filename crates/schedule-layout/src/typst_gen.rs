@@ -27,9 +27,10 @@ pub fn escape_typst(s: &str) -> String {
 
 /// Generate the Typst document preamble with paper size, fonts, and brand colors.
 ///
-/// For the `Poster` paper size the page is set with explicit `width`/`height`
-/// instead of a named `paper:` key, because 30"×20" is not a standard Typst
-/// paper name. Both portrait (20"×30") and landscape (30"×20") are supported.
+/// For the `Poster` and `Quarter` paper sizes the page is set with explicit
+/// `width`/`height` instead of a named `paper:` key, because these sizes are
+/// not standard Typst paper names. Both portrait and landscape orientations
+/// are supported.
 pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
     use crate::config::PaperSize;
 
@@ -54,6 +55,14 @@ pub fn preamble(config: &LayoutConfig, brand: &BrandConfig) -> String {
                 "width: 30in, height: 20in".to_string()
             } else {
                 "width: 20in, height: 30in".to_string()
+            }
+        }
+        PaperSize::Quarter => {
+            // 4.25"×5.5" base dimensions — swap for landscape orientation.
+            if landscape {
+                "width: 5.5in, height: 4.25in".to_string()
+            } else {
+                "width: 4.25in, height: 5.5in".to_string()
             }
         }
         _ => {
