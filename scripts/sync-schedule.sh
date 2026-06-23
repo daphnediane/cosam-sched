@@ -153,6 +153,22 @@ main() {
         done
     fi
 
+    # Generate PNGs from postcard Typst files
+    local typ_dir="${generated_dir}/typ"
+    local png_dir="${generated_dir}/png"
+    if [[ -d "${typ_dir}" ]]; then
+        cmd mkdir -p "${png_dir}"
+        for typ in "${typ_dir}"/*postcard.typ; do
+            [[ -f "${typ}" ]] || continue
+            local basename=$(basename "${typ}" .typ)
+            local output="${png_dir}/${basename}-{p}.png"
+            echo "Creating PNG from postcard: ${typ} -> ${output}"
+            # Use / as root (like cosam-convert) so absolute paths resolve correctly
+            cmd typst compile "${typ}" "${output}" --root / --font-path "${ROOT_DIR}/config/brand/fonts" ||
+                echo "Warning: failed to create PNG for ${basename}"
+        done
+    fi
+
     # Sync generated/ to OneDrive. --relative preserves the generated/ path
     # component at the destination; --delete-after only prunes within that tree,
     # leaving other files in sched_base alone.
