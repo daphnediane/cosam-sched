@@ -244,8 +244,12 @@ mod tests {
     fn test_typst_lets_compact_geometry() {
         // Compact banner + footer use the thinner sets.
         let lets = typst_lets(true, None, true, None);
-        assert!(lets.contains(&format!("#let _banner-height = {COMPACT_BANNER_HEIGHT_IN}in")));
-        assert!(lets.contains(&format!("#let _footer-bottom = {COMPACT_FOOTER_BOTTOM_IN}in")));
+        assert!(lets.contains(&format!(
+            "#let _banner-height = {COMPACT_BANNER_HEIGHT_IN}in"
+        )));
+        assert!(lets.contains(&format!(
+            "#let _footer-bottom = {COMPACT_FOOTER_BOTTOM_IN}in"
+        )));
         assert!(lets.contains("#let _banner-inset = (x: 5pt, y: 2pt)"));
         // Full-size keeps the standard banner.
         let std = typst_lets(false, None, false, None);
@@ -258,7 +262,9 @@ mod tests {
         // a full banner).
         let lets = typst_lets(false, None, true, None);
         assert!(lets.contains(&format!("#let _banner-height = {BANNER_HEIGHT_IN}in")));
-        assert!(lets.contains(&format!("#let _footer-bottom = {COMPACT_FOOTER_BOTTOM_IN}in")));
+        assert!(lets.contains(&format!(
+            "#let _footer-bottom = {COMPACT_FOOTER_BOTTOM_IN}in"
+        )));
     }
 
     #[test]

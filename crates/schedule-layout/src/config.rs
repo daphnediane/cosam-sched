@@ -568,7 +568,10 @@ impl ChromeSize {
             ChromeSize::Length(s) => s.as_str(),
             _ => return None,
         };
-        match s.strip_suffix('%').and_then(|p| p.trim().parse::<f64>().ok()) {
+        match s
+            .strip_suffix('%')
+            .and_then(|p| p.trim().parse::<f64>().ok())
+        {
             Some(pct) => Some(format!("{:.4}in", pct / 100.0 * page_height_in)),
             None => Some(s.to_string()),
         }

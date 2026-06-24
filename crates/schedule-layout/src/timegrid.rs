@@ -173,7 +173,12 @@ impl GridLayout {
         // Forcing the boundary in unconditionally created a blank leading/trailing
         // row whenever the first/last panel sat *inside* the window (e.g. a custom
         // timeline block beginning at midnight with no panel until the afternoon).
-        let boundary_panels = || regular.iter().filter(|p| renders_cell(p)).chain(breaks.iter());
+        let boundary_panels = || {
+            regular
+                .iter()
+                .filter(|p| renders_cell(p))
+                .chain(breaks.iter())
+        };
         if let Some(wse) = win_start_epoch {
             if boundary_panels().any(|p| p.start_epoch.is_some_and(|s| s < wse)) {
                 slot_set.insert(wse);

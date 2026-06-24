@@ -508,7 +508,15 @@ fn render_room_cells(
                 && conflict_ranges
                     .iter()
                     .any(|&(s, e)| cell.row_start < e && s < cell.row_end);
-            render_event_cell(out, cell, data, color_mode, config, cell_highlighted, dimmed);
+            render_event_cell(
+                out,
+                cell,
+                data,
+                color_mode,
+                config,
+                cell_highlighted,
+                dimmed,
+            );
         } else {
             render_empty_or_spanned_cell(
                 out,
@@ -560,7 +568,11 @@ fn render_event_cell(
     // Panel-type accent paint, faded to a matching alpha when the cell is dimmed
     // so the spine recedes with the rest of the (veiled) content.
     let accent_paint = if dimmed {
-        format!("rgb(\"{color}\").transparentize({fade}%)", color = color_str, fade = DIM_CONFLICT_FADE)
+        format!(
+            "rgb(\"{color}\").transparentize({fade}%)",
+            color = color_str,
+            fade = DIM_CONFLICT_FADE
+        )
     } else {
         format!("rgb(\"{color}\")", color = color_str)
     };
@@ -958,7 +970,10 @@ mod tests {
         let out = render_schedule_grid(&layout, &data, ColorMode::Color, &cfg);
         // The highlighted cell uses the even-luma tint; the conflicting cell is
         // veiled with a translucent white overlay.
-        assert!(out.contains("pastel-tint("), "highlight should use pastel-tint");
+        assert!(
+            out.contains("pastel-tint("),
+            "highlight should use pastel-tint"
+        );
         assert!(
             out.contains("white.transparentize("),
             "conflicting cell should be dimmed with a white veil"
