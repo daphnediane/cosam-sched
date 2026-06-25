@@ -119,6 +119,7 @@ for year in $(seq 2016 "$current_year"); do
     args=(
         --input "$cosam_file"
         --title "Cosplay America ${year} Schedule"
+        --plugin kiosk
         --output "$copy"
         --export "$dest"
         --private

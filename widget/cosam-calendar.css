@@ -10,6 +10,10 @@
   --cosam-accent: #6b21a8;
   --cosam-accent-light: #a855f7;
   --cosam-accent-bg: #f3e8ff;
+  /* "Currently running" panel tint: keep the panel-type color's hue but pin
+     OKLCh lightness/chroma to the theme so every category tints consistently. */
+  --cosam-current-l: 0.90;
+  --cosam-current-c: 0.09;
   --cosam-bg: #f5f5f5;
   --cosam-bg-alt: #f9fafb;
   --cosam-widget-bg: transparent;
@@ -68,6 +72,8 @@
   --cosam-accent: #0f4c81;
   --cosam-accent-light: #3b82f6;
   --cosam-accent-bg: #e0f2fe;
+  --cosam-current-l: 0.91;
+  --cosam-current-c: 0.08;
   --cosam-bg: #ffffff;
   --cosam-bg-alt: #f8fafc;
   --cosam-widget-bg: #f8fafc;
@@ -94,6 +100,8 @@
   --cosam-accent: #93c5fd;
   --cosam-accent-light: #bfdbfe;
   --cosam-accent-bg: #1e293b;
+  --cosam-current-l: 0.27;
+  --cosam-current-c: 0.05;
   --cosam-bg: #0b1220;
   --cosam-bg-alt: #131c2f;
   --cosam-widget-bg: #0f1729;
@@ -123,6 +131,8 @@
   --cosam-accent: #ffff00;
   --cosam-accent-light: #ffffff;
   --cosam-accent-bg: #000000;
+  --cosam-current-l: 0.18;
+  --cosam-current-c: 0.03;
   --cosam-bg: #000000;
   --cosam-bg-alt: #111111;
   --cosam-widget-bg: #000000;
@@ -1548,6 +1558,33 @@
 
 .cosam-grid-event.cosam-shared:not(.starred) {
   border-left-color: #0891b2;
+}
+
+/* Live "currently running" highlight (grid + list). Color is reinforced with an
+   accent ring and a "Now" marker so the state is not conveyed by background
+   alone (WCAG — color is not the sole signal). */
+.cosam-grid-event.cosam-current,
+.cosam-event-card.cosam-current {
+  background: var(--cosam-accent-bg);
+  outline: 2px solid var(--cosam-accent);
+  outline-offset: -1px;
+}
+
+.cosam-grid-event.cosam-current::after,
+.cosam-event-card.cosam-current::after {
+  content: "\25CF Now";
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--cosam-accent);
+  background: var(--cosam-event-bg, #fff);
+  border-radius: 4px;
+  padding: 0 3px;
+  pointer-events: none;
+  z-index: 21;
 }
 
 .cosam-grid-event-actions {

@@ -129,6 +129,7 @@ try {
         "--title", "Cosplay America ${Year} Schedule",
         "--public",
         "--embed-as-html",
+        "--plugin", "kiosk",
         "--output", "${generatedDir}/cos${Year}.xlsx",
         "--export-xlsx-grid", "${generatedDir}/cos${Year}grid.xlsx",
         "--export-embed", "${generatedDir}/embed.html",

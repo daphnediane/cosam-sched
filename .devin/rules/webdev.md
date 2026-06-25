@@ -56,9 +56,9 @@ npm run serve   # localhost:8000
 ```bash
 cargo run -p cosam-convert -- \
   --input "input/2026 Schedule.xlsx" \
-  --export-test scratch/2026-test.html \
   --widget widget/ --no-minified \
-  --title "Cosplay America 2026 Schedule"
+  --title "Cosplay America 2026 Schedule" \
+  --export-test scratch/2026-test.html
 ```
 
 Open `scratch/2026-test.html` or use `browser_preview` on `http://localhost:8000`.

@@ -155,6 +155,7 @@ try {
         $convertArgs = @(
             "--input", $cosamFile,
             "--title", "Cosplay America ${year} Schedule",
+            "--plugin", "kiosk",
             "--output", $copy,
             "--export", $dest,
             "--private",

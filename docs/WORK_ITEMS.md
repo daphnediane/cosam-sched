@@ -1,6 +1,6 @@
 # Cosplay America Schedule - Work Item
 
-Updated on: Sat Jun 20 23:05:08 2026
+Updated on: Thu Jun 25 00:40:46 2026
 
 ## Completed
 
@@ -129,6 +129,8 @@ from `config/layout.toml`.
 carrying duration, instead of `Panel` entities flagged `is_break`.
 * [FEATURE-150] Record a timezone (and overridable start/end bounds) in schedule metadata and
 thread it through every export so .ics calendar files anchor correctly.
+* [FEATURE-155] Bring the old schedule-to-html kiosk display into the widget as a plugin, and
+highlight currently-running panels in all views.
 * [META-002] Phase tracker for project foundation and Cargo workspace setup.
 * [META-003] Phase tracker for the entity/field system and core schedule data model in schedule-core.
 * [META-004] Phase tracker for making an automerge CRDT document the authoritative storage
@@ -932,6 +934,7 @@ trait and unified `name` (all seven name-bearing entities), `description` /
 [FEATURE-151]: ../work-item/open/2-MEDIUM/FEATURE-151.md
 [FEATURE-152]: ../work-item/open/2-MEDIUM/FEATURE-152.md
 [FEATURE-154]: ../work-item/open/2-MEDIUM/FEATURE-154.md
+[FEATURE-155]: ../work-item/closed/done/FEATURE-155.md
 [META-001]: ../work-item/meta/META-001.md
 [META-002]: ../work-item/closed/done/META-002.md
 [META-003]: ../work-item/closed/done/META-003.md

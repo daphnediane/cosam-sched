@@ -1,0 +1,490 @@
+/*
+ * Copyright (c) 2026 Daphne Pfister
+ * SPDX-License-Identifier: BSD-2-Clause
+ * See LICENSE file for full license text
+ */
+
+/* CosAm Calendar Kiosk Plugin styles.
+ * Scoped under .cosam-kiosk, which the plugin mounts inside the themed
+ * .cosam-calendar root (so --cosam-* vars cascade). Hidden until `.open`.
+ * All colors come from theme variables so the kiosk matches whatever theme the
+ * widget is on (light / dark / high-contrast). */
+
+/* Lock host scrolling while the kiosk is up. */
+html.cosam-kiosk-active,
+html.cosam-kiosk-active body {
+  overflow: hidden;
+}
+
+/* The kiosk is a full-screen overlay; while it is open, suppress a host page's
+   fixed top nav (e.g. Squarespace's mobile bar) so it can't paint over the
+   kiosk banner / exit button. Same selectors the widget already treats as a
+   sticky top bar (stickyOffsetSelector). */
+html.cosam-kiosk-active [data-nc-base="mobile-bar"],
+html.cosam-kiosk-active .Mobile-bar--top {
+  display: none !important;
+}
+
+.cosam-kiosk {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9000; /* below the shared modal (10000) so panel details show on top */
+  background: var(--cosam-bg, #fff);
+  color: var(--cosam-text, #1f2937);
+  grid-template-rows: auto minmax(0, 1.1fr) minmax(0, 1fr);
+  font-family: var(--cosam-font, system-ui, sans-serif);
+}
+
+.cosam-kiosk.open {
+  display: grid;
+}
+
+/* ── Banner ─────────────────────────────────────────────────────────────── */
+
+.cosam-kiosk-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--cosam-grid-header-bg, #2a9ec7);
+  color: var(--cosam-grid-header-text, #fff);
+  border-bottom: 2px solid var(--cosam-accent, #6b21a8);
+  min-height: 44px;
+}
+
+.cosam-kiosk-brand {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cosam-kiosk-logo {
+  height: 32px;
+  width: auto;
+  max-width: 60vw;
+  object-fit: contain;
+}
+
+.cosam-kiosk-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--cosam-grid-header-text, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cosam-kiosk-clock {
+  flex: 0 0 auto;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--cosam-grid-header-text, #fff);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.cosam-kiosk-clock:hover,
+.cosam-kiosk-clock:focus-visible {
+  border-color: var(--cosam-accent, #6b21a8);
+  outline: none;
+}
+
+/* Future-preview (crystal ball) */
+.cosam-kiosk-preview-btn {
+  flex: 0 0 auto;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--cosam-grid-header-text, #fff);
+  background: transparent;
+  border: 1px solid color-mix(in oklab, currentColor 35%, transparent);
+  border-radius: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+
+.cosam-kiosk-preview-btn:hover,
+.cosam-kiosk-preview-btn:focus-visible {
+  border-color: var(--cosam-accent, #6b21a8);
+  outline: none;
+}
+
+.cosam-kiosk-preview-btn[aria-pressed="true"] {
+  background: var(--cosam-accent, #6b21a8);
+  border-color: var(--cosam-accent, #6b21a8);
+}
+
+/* The datetime input only appears while previewing. */
+.cosam-kiosk-preview-input {
+  display: none;
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--cosam-text, #1f2937);
+  background: var(--cosam-bg-alt, #f9fafb);
+  border: 1px solid var(--cosam-accent, #6b21a8);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.cosam-kiosk.cosam-kiosk-previewing .cosam-kiosk-preview-input {
+  display: inline-block;
+}
+
+/* While previewing, the clock reads the previewed instant — flag it. */
+.cosam-kiosk.cosam-kiosk-previewing .cosam-kiosk-clock {
+  color: var(--cosam-grid-header-text, #fff);
+  border-color: var(--cosam-accent, #6b21a8);
+}
+
+/* Time-column cells become clickable targets while previewing. */
+.cosam-kiosk.cosam-kiosk-previewing .cosam-kiosk-grid-scroll .cosam-grid-time-header:not(.cosam-grid-header-cell) {
+  cursor: pointer;
+}
+
+.cosam-kiosk.cosam-kiosk-previewing .cosam-kiosk-grid-scroll .cosam-grid-time-header:not(.cosam-grid-header-cell):hover {
+  background: var(--cosam-accent-bg, #ede9fe);
+  box-shadow: inset 0 0 0 2px var(--cosam-accent, #6b21a8);
+}
+
+.cosam-kiosk-exit {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  color: var(--cosam-grid-header-text, #fff);
+  border: 1px solid color-mix(in oklab, currentColor 35%, transparent);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cosam-kiosk-exit svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.cosam-kiosk-exit:hover,
+.cosam-kiosk-exit:focus-visible {
+  border-color: var(--cosam-accent, #6b21a8);
+  outline: none;
+}
+
+/* ── Top pane: scrollable grid ──────────────────────────────────────────── */
+
+.cosam-kiosk-grid-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--cosam-grid-bg, #f5f5f5);
+}
+
+/* The grid keeps its regular themed backgrounds; the only highlight is the
+   active hour. A band tints the active row's empty cells, the active time cell
+   takes the same tint with an accent edge, and the running panels get a per-
+   type-hue tint (set inline by the core current-highlight pass). */
+.cosam-kiosk-now-band {
+  /* A clear accent wash over the grid background so the active hour reads all
+     the way across the window — stronger than the pale --cosam-accent-bg. */
+  background: color-mix(in oklab, var(--cosam-accent, #6b21a8) 18%, var(--cosam-grid-bg, #f5f5f5));
+  z-index: 1; /* above grid bg, below row/col lines and panels */
+}
+
+.cosam-kiosk-grid-scroll .cosam-grid-time-header.cosam-kiosk-now:not(.cosam-grid-header-cell) {
+  background: color-mix(in oklab, var(--cosam-accent, #6b21a8) 18%, var(--cosam-grid-bg, #f5f5f5));
+  color: var(--cosam-accent, #6b21a8);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--cosam-accent, #6b21a8);
+}
+
+/* ── Bottom pane: per-room current / upcoming ───────────────────────────── */
+
+.cosam-kiosk-detail {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--cosam-bg, #fff);
+  color: var(--cosam-text, #1f2937);
+  padding: 0 4px 6px;
+}
+
+.cosam-kiosk-detail-grid {
+  flex: 1; /* stretch the room rows to fill the pane's available height */
+  display: grid;
+  grid-template-columns: minmax(96px, 0.7fr) 2fr 2fr;
+  /* Header row sizes to content; room rows share the remaining height evenly,
+     but never shrink below their content (then the pane scrolls). */
+  grid-template-rows: auto;
+  grid-auto-rows: minmax(min-content, 1fr);
+  gap: 1px;
+  background: var(--cosam-border, #e5e7eb); /* shows through the 1px gaps */
+  align-items: stretch;
+}
+
+.cosam-kiosk-detail-corner,
+.cosam-kiosk-detail-head {
+  position: sticky;
+  top: 0;
+  background: var(--cosam-grid-header-bg, #2a9ec7);
+  color: var(--cosam-grid-header-text, #fff);
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
+  padding: 3px 6px;
+  z-index: 1;
+}
+
+.cosam-kiosk-room {
+  background: var(--cosam-grid-header-bg, #2a9ec7);
+  color: var(--cosam-grid-header-text, #fff);
+  text-align: center;
+  padding: 3px 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.cosam-kiosk-room-hotel {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.cosam-kiosk-room-name {
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1.15;
+}
+
+/* Compact cells so as many rooms as possible fit without scrolling; the pane
+   still scrolls when a schedule has more rooms than the pane can show. */
+.cosam-kiosk-detail-cell {
+  background: var(--cosam-event-bg, #fff);
+  color: var(--cosam-text, #1f2937);
+  padding: 3px 7px;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.cosam-kiosk-detail-clickable {
+  cursor: pointer;
+}
+
+.cosam-kiosk-detail-clickable:hover,
+.cosam-kiosk-detail-clickable:focus-visible {
+  outline: 2px solid var(--cosam-accent, #6b21a8);
+  outline-offset: -2px;
+}
+
+.cosam-kiosk-detail-current {
+  border-left: 3px solid var(--cosam-accent, #6b21a8);
+}
+
+.cosam-kiosk-detail-empty {
+  background: var(--cosam-bg-alt, #f9fafb);
+}
+
+.cosam-kiosk-cell-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.cosam-kiosk-cell-name {
+  font-weight: 700;
+}
+
+.cosam-kiosk-cell-time {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  font-size: 10px;
+  color: var(--cosam-text-muted, #6b7280);
+  white-space: nowrap;
+}
+
+/* "starts in" countdown badge for upcoming panels. */
+.cosam-kiosk-cell-countdown {
+  font-weight: 700;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--cosam-accent, #6b21a8);
+  background: color-mix(in oklab, var(--cosam-accent, #6b21a8) 16%, transparent);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.cosam-kiosk-cell-credits {
+  font-style: italic;
+  font-size: 10px;
+  color: var(--cosam-text-muted, #6b7280);
+}
+
+.cosam-kiosk-cell-desc {
+  margin-top: 2px;
+  color: var(--cosam-text-muted, #6b7280);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Mobile / phone layout ──────────────────────────────────────────────────
+   At phone widths the schedule grid would reflow to a broken single column, so
+   the kiosk hides it and shows a condensed per-room list of current/upcoming
+   panel titles. The narrow state is toggled in JS at the same 750px breakpoint
+   the widget uses for its grid→list switch (.cosam-kiosk-narrow on the shell). */
+
+.cosam-kiosk-mobile {
+  display: none;
+}
+
+.cosam-kiosk.cosam-kiosk-narrow {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-grid-scroll,
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-detail {
+  display: none;
+}
+
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-mobile {
+  display: block;
+  overflow-y: auto;
+  background: var(--cosam-bg, #fff);
+  padding: 4px 8px 10px;
+}
+
+/* Keep the banner compact so the crystal-ball and exit buttons stay visible on
+   phones: cap the logo, let the clock take the middle and ellipsize, pin the
+   fixed-width buttons on the right. */
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-banner {
+  gap: 6px;
+  padding: 5px 8px;
+}
+
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-brand {
+  /* Take only the slack left after the fixed-width buttons, and clip the logo —
+     a px cap (not vw, which is unreliable without width=device-width) keeps the
+     crystal-ball and exit buttons on screen. */
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 150px;
+  overflow: hidden;
+}
+
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-logo {
+  height: 22px;
+  max-width: 100%;
+}
+
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-preview-btn,
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-exit {
+  flex: 0 0 auto;
+}
+
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-clock {
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  flex: 1 1 auto;
+}
+
+.cosam-kiosk-m-room {
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--cosam-border, #e5e7eb);
+}
+
+.cosam-kiosk-m-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--cosam-text, #1f2937);
+  margin-bottom: 3px;
+}
+
+.cosam-kiosk-m-slot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.3;
+  padding: 2px 0;
+}
+
+.cosam-kiosk-m-slot[role="button"] {
+  cursor: pointer;
+}
+
+.cosam-kiosk-m-slot[role="button"]:hover,
+.cosam-kiosk-m-slot[role="button"]:focus-visible {
+  outline: 2px solid var(--cosam-accent, #6b21a8);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.cosam-kiosk-m-label {
+  flex: 0 0 auto;
+  width: 34px;
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cosam-text-muted, #6b7280);
+}
+
+.cosam-kiosk-m-now .cosam-kiosk-m-label {
+  color: var(--cosam-accent, #6b21a8);
+}
+
+.cosam-kiosk-m-star {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.cosam-kiosk-m-star svg {
+  width: 13px;
+  height: 13px;
+  fill: var(--cosam-star, #f59e0b);
+  stroke: var(--cosam-star, #f59e0b);
+}
+
+.cosam-kiosk-m-title {
+  flex: 1 1 auto;
+  color: var(--cosam-text, #1f2937);
+}
+
+/* A panel in the viewer's schedule gets a star left-edge accent. */
+.cosam-kiosk-m-starred .cosam-kiosk-m-title {
+  font-weight: 700;
+}
+
+.cosam-kiosk-m-now .cosam-kiosk-m-title {
+  font-weight: 600;
+}
+
+.cosam-kiosk-m-empty {
+  color: var(--cosam-text-muted, #6b7280);
+}
+
+.cosam-kiosk-m-cd {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-size: 10px;
+  color: var(--cosam-accent, #6b21a8);
+  background: color-mix(in oklab, var(--cosam-accent, #6b21a8) 16%, transparent);
+  border-radius: 4px;
+  padding: 0 4px;
+}

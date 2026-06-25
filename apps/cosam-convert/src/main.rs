@@ -117,6 +117,9 @@ struct OutputSettings {
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<String>,
+    /// Extra (non-print) plugins to inline, e.g. `kiosk`. Each is resolved like a
+    /// print plugin and self-registers into `window.CosAmCalendarPlugins`.
+    plugins: Vec<String>,
     title: String,
     private_export: bool,
     embed_as_html: bool,
@@ -146,6 +149,7 @@ impl Default for OutputSettings {
             style_page: None,
             show_even_grid_switch: None,
             print_plugin: None,
+            plugins: Vec::new(),
             title: String::new(),
             private_export: false,
             embed_as_html: true,
@@ -652,6 +656,16 @@ fn parse_args() -> Result<CliArgs> {
                 }
                 current_settings.print_plugin = Some(arguments[index].clone());
             }
+            "--plugin" => {
+                if first_setting_index.is_none() {
+                    first_setting_index = Some(index);
+                }
+                index += 1;
+                if index >= arguments.len() {
+                    anyhow::bail!("Missing value for --plugin");
+                }
+                current_settings.plugins.push(arguments[index].clone());
+            }
             "--show-even-grid-switch" => {
                 if first_setting_index.is_none() {
                     first_setting_index = Some(index);
@@ -775,6 +789,8 @@ fn print_usage() {
          \x20 --print-plugin <name|file>          Print plugin: direct path, config/plugins/print-format-<name>.min.js, widget/print-format-<name>.min.js,\n\
          \x20                                      'advanced' for built-in, 'default'/'none'/'builtin' for simple print\n\
          \x20                                      Default: built-in simple print (no plugin)\n\
+         \x20 --plugin <name|file>                 Extra plugin to inline (repeatable): direct path, config/plugins/<name>.min.js,\n\
+         \x20                                      widget/<name>.min.js, or built-in 'kiosk'. Self-registers into the widget.\n\
          \x20 --public                             Exclude private panels, timeline, and uncredited presenters in export\n\
          \x20 --private                            Include private panels, timeline, and uncredited presenters in export\n\
          \n\
@@ -1107,6 +1123,7 @@ fn main() {
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
                             job.settings.print_plugin.as_deref(),
+                            &job.settings.plugins,
                         ),
                         OutputType::ExportEmbedHead => embed::write_embed_head_widget_html(
                             &job.path,
@@ -1116,6 +1133,7 @@ fn main() {
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
                             job.settings.print_plugin.as_deref(),
+                            &job.settings.plugins,
                         ),
                         OutputType::ExportEmbedBody => embed::write_embed_body_widget_html(
                             &job.path,
@@ -1132,6 +1150,7 @@ fn main() {
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
                             job.settings.print_plugin.as_deref(),
+                            &job.settings.plugins,
                         ),
                         _ => unreachable!(),
                     }
@@ -1151,6 +1170,7 @@ fn main() {
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
                             job.settings.print_plugin.as_deref(),
+                            &job.settings.plugins,
                         ),
                         OutputType::ExportEmbedHead => embed::write_embed_head_json(
                             &job.path,
@@ -1160,6 +1180,7 @@ fn main() {
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
                             job.settings.print_plugin.as_deref(),
+                            &job.settings.plugins,
                         ),
                         OutputType::ExportEmbedBody => embed::write_embed_body_json(
                             &job.path,
@@ -1176,6 +1197,7 @@ fn main() {
                             job.settings.style_page,
                             job.settings.show_even_grid_switch,
                             job.settings.print_plugin.as_deref(),
+                            &job.settings.plugins,
                         ),
                         _ => unreachable!(),
                     }

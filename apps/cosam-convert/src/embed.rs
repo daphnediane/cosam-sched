@@ -158,6 +158,71 @@ fn load_print_plugin(
     }
 }
 
+/// Resolves a generic (non-print) plugin argument to a JS file path, or None
+/// when it names a builtin handled separately.
+///
+/// Resolution order mirrors `resolve_print_plugin` but without the
+/// `print-format-` prefix:
+/// 1. Direct file path
+/// 2. config/plugins/<arg>.min.js or config/plugins/<arg>.js
+/// 3. widget/<arg>.min.js or widget/<arg>.js
+/// 4. Builtin "kiosk" -> None (compiled-in fallback)
+fn resolve_plugin(arg: &str) -> Result<Option<String>> {
+    let direct = Path::new(arg);
+    if direct.exists() {
+        return Ok(Some(arg.to_string()));
+    }
+    for dir in ["config/plugins", "widget"] {
+        for ext in ["min.js", "js"] {
+            let p = Path::new(dir).join(format!("{arg}.{ext}"));
+            if p.exists() {
+                return Ok(Some(p.to_string_lossy().into_owned()));
+            }
+        }
+    }
+    if arg == "kiosk" {
+        return Ok(None); // compiled-in builtin
+    }
+    anyhow::bail!(
+        "Plugin '{}' not found. Checked direct path, config/plugins/{{}}.min.js, config/plugins/{{}}.js, widget/{{}}.min.js, widget/{{}}.js",
+        arg
+    );
+}
+
+/// Loads the requested extra (non-print) plugins, returning concatenated JS and
+/// CSS blocks ready to inline. Each plugin script self-registers into
+/// `window.CosAmCalendarPlugins`, which `CosAmCalendar.init()` reads directly —
+/// so no init-line wiring is needed here.
+fn load_extra_plugins(plugins: &[String]) -> Result<(String, String)> {
+    let mut js = String::new();
+    let mut css = String::new();
+    for name in plugins {
+        let (plugin_js, plugin_css) = match resolve_plugin(name)? {
+            Some(path) => {
+                let j = std::fs::read_to_string(&path)
+                    .with_context(|| format!("Failed to read plugin file: {path}"))?;
+                let css_path = path.replace(".min.js", ".css").replace(".js", ".css");
+                let c = if Path::new(&css_path).exists() {
+                    std::fs::read_to_string(&css_path)
+                        .with_context(|| format!("Failed to read plugin CSS: {css_path}"))?
+                } else {
+                    String::new()
+                };
+                (j, c)
+            }
+            None => match name.as_str() {
+                "kiosk" => (BUILTIN_KIOSK_JS.to_string(), BUILTIN_KIOSK_CSS.to_string()),
+                other => anyhow::bail!("Unknown builtin plugin '{}'", other),
+            },
+        };
+        js.push_str(&format!("\n// Plugin: {name}\n{plugin_js}\n"));
+        if !plugin_css.is_empty() {
+            css.push_str(&format!("\n<style>\n{plugin_css}\n</style>"));
+        }
+    }
+    Ok((js, css))
+}
+
 // Pre-minified by esbuild (via `npm run build` / build.rs).
 // Using the esbuild output avoids minify-html's JS minifier, which
 // double-escapes \uXXXX sequences in string literals.
@@ -169,6 +234,8 @@ const BUILTIN_PRINT_FORMAT_ADVANCED: &str =
     include_str!("../../../widget/print-format-advanced.min.js");
 const BUILTIN_PRINT_FORMAT_ADVANCED_CSS: &str =
     include_str!("../../../widget/print-format-advanced.min.css");
+const BUILTIN_KIOSK_JS: &str = include_str!("../../../widget/kiosk.min.js");
+const BUILTIN_KIOSK_CSS: &str = include_str!("../../../widget/kiosk.min.css");
 // const BUILTIN_PRINT_FORMAT_TYPST: &str = include_str!("../../../widget/print-format-typst.min.js")
 const BUILTIN_TEMPLATE: &str = include_str!("../../../widget/square-template.html");
 
@@ -362,6 +429,7 @@ pub fn generate_embed_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n            stylePageBody: true,",
@@ -377,6 +445,9 @@ pub fn generate_embed_html(
         print_plugin,
         "\n            printPlugin: new window.PrintFormatPlugin(),",
     )?;
+    // Extra plugins (e.g. kiosk) self-register into window.CosAmCalendarPlugins,
+    // which CosAmCalendar.init() reads — so only the JS/CSS are inlined here.
+    let (extra_plugins_js, extra_plugins_css) = load_extra_plugins(extra_plugins)?;
     let encoded_data = compress_and_encode(json_data)?;
     // Optional presentation config (branding + print-format defaults), emitted as
     // its own ScheduleConfig <script> the default EmbeddedConfigLoader reads.
@@ -391,7 +462,7 @@ pub fn generate_embed_html(
 <style>
 {css}
 {print_plugin_css}
-</style>
+</style>{extra_plugins_css}
 <div id="cosam-calendar-root"><p style="padding:40px 20px;text-align:center">Schedule failed to load. Please enable JavaScript and reload the page.</p></div>
 {config_html}
 <script type="application/json" id="cosam-schedule-data">
@@ -410,6 +481,7 @@ pub fn generate_embed_html(
 // JSON embed loader
 {json_loader}
 {print_plugin_js}
+{extra_plugins_js}
 
 {bootstrap}
 </script>"#,
@@ -444,6 +516,7 @@ pub fn generate_test_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<String> {
     let embed_block = generate_embed_html(
         json_data,
@@ -453,6 +526,7 @@ pub fn generate_test_html(
         style_page,
         show_even_grid_switch,
         print_plugin,
+        extra_plugins,
     )?;
 
     let raw = sources
@@ -481,6 +555,7 @@ pub fn generate_embed_html_widget_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n    stylePageBody: true,",
@@ -496,6 +571,7 @@ pub fn generate_embed_html_widget_html(
         print_plugin,
         "\n    printPlugin: new window.PrintFormatPlugin(),",
     )?;
+    let (extra_plugins_js, extra_plugins_css) = load_extra_plugins(extra_plugins)?;
     let schedule_html = static_html::generate_static_schedule_html(export)?;
     // Optional presentation config (branding + print-format defaults), emitted as
     // its own ScheduleConfig <script> so the embedded widget can match the
@@ -510,7 +586,7 @@ pub fn generate_embed_html_widget_html(
 <style>
 {css}
 {print_plugin_css}
-</style>
+</style>{extra_plugins_css}
 <div id="cosam-calendar-root"></div>
 {config_html}
 {schedule_html}
@@ -527,6 +603,7 @@ pub fn generate_embed_html_widget_html(
 // HTML embed loader
 {html_loader}
 {print_plugin_js}
+{extra_plugins_js}
 
 {bootstrap}
 </script>"#,
@@ -560,6 +637,7 @@ pub fn generate_test_html_widget_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<String> {
     let embed_block = generate_embed_html_widget_html(
         export,
@@ -569,6 +647,7 @@ pub fn generate_test_html_widget_html(
         style_page,
         show_even_grid_switch,
         print_plugin,
+        extra_plugins,
     )?;
 
     let raw = sources
@@ -680,6 +759,7 @@ pub fn generate_embed_head_widget_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n            stylePageBody: true,",
@@ -695,6 +775,7 @@ pub fn generate_embed_head_widget_html(
         print_plugin,
         "\n            printPlugin: new window.PrintFormatPlugin(),",
     )?;
+    let (extra_plugins_js, extra_plugins_css) = load_extra_plugins(extra_plugins)?;
     let config_html = if let Some(cfg) = config {
         static_html::generate_config_html(cfg)?
     } else {
@@ -706,7 +787,7 @@ pub fn generate_embed_head_widget_html(
 <style>
 {css}
 {print_plugin_css}
-</style>
+</style>{extra_plugins_css}
 {config_html}
 <script>
 // CosAm Calendar Widget - Engine (site-wide Code Injection: Header)
@@ -721,6 +802,7 @@ pub fn generate_embed_head_widget_html(
 // HTML embed loader
 {html_loader}
 {print_plugin_js}
+{extra_plugins_js}
 
 {bootstrap}
 </script>"#,
@@ -772,6 +854,7 @@ pub fn generate_embed_head_json(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<String> {
     let style_page_line = match style_page {
         Some(true) => "\n            stylePageBody: true,",
@@ -787,6 +870,7 @@ pub fn generate_embed_head_json(
         print_plugin,
         "\n            printPlugin: new window.PrintFormatPlugin(),",
     )?;
+    let (extra_plugins_js, extra_plugins_css) = load_extra_plugins(extra_plugins)?;
     // Presentation config (branding + print-format defaults) ships in the head
     // engine so the resident widget has it before page content arrives.
     let config_html = match config {
@@ -799,7 +883,7 @@ pub fn generate_embed_head_json(
 <style>
 {css}
 {print_plugin_css}
-</style>
+</style>{extra_plugins_css}
 {config_html}
 <script>
 // CosAm Calendar Widget - Engine (site-wide Code Injection: Header)
@@ -814,6 +898,7 @@ pub fn generate_embed_head_json(
 // JSON embed loader
 {json_loader}
 {print_plugin_js}
+{extra_plugins_js}
 
 {bootstrap}
 </script>"#,
@@ -865,6 +950,7 @@ pub fn write_embed_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<()> {
     let html = generate_embed_html(
         json_data,
@@ -874,6 +960,7 @@ pub fn write_embed_html(
         style_page,
         show_even_grid_switch,
         print_plugin,
+        extra_plugins,
     )?;
     write_html_file(path, &html, "embed HTML")
 }
@@ -888,6 +975,7 @@ pub fn write_test_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<()> {
     let html = generate_test_html(
         json_data,
@@ -898,6 +986,7 @@ pub fn write_test_html(
         style_page,
         show_even_grid_switch,
         print_plugin,
+        extra_plugins,
     )?;
     write_html_file(path, &html, "test HTML")
 }
@@ -911,6 +1000,7 @@ pub fn write_embed_html_widget_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<()> {
     let html = generate_embed_html_widget_html(
         export,
@@ -920,6 +1010,7 @@ pub fn write_embed_html_widget_html(
         style_page,
         show_even_grid_switch,
         print_plugin,
+        extra_plugins,
     )?;
     write_html_file(path, &html, "embed HTML (widget-html)")
 }
@@ -934,6 +1025,7 @@ pub fn write_test_html_widget_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<()> {
     let html = generate_test_html_widget_html(
         export,
@@ -944,6 +1036,7 @@ pub fn write_test_html_widget_html(
         style_page,
         show_even_grid_switch,
         print_plugin,
+        extra_plugins,
     )?;
     write_html_file(path, &html, "test HTML (widget-html)")
 }
@@ -956,6 +1049,7 @@ pub fn write_embed_head_widget_html(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<()> {
     let html = generate_embed_head_widget_html(
         config,
@@ -964,6 +1058,7 @@ pub fn write_embed_head_widget_html(
         style_page,
         show_even_grid_switch,
         print_plugin,
+        extra_plugins,
     )?;
     write_html_file(path, &html, "embed head engine (widget-html)")
 }
@@ -985,6 +1080,7 @@ pub fn write_embed_head_json(
     style_page: Option<bool>,
     show_even_grid_switch: Option<bool>,
     print_plugin: Option<&str>,
+    extra_plugins: &[String],
 ) -> Result<()> {
     let html = generate_embed_head_json(
         config,
@@ -993,6 +1089,7 @@ pub fn write_embed_head_json(
         style_page,
         show_even_grid_switch,
         print_plugin,
+        extra_plugins,
     )?;
     write_html_file(path, &html, "embed head engine (json)")
 }

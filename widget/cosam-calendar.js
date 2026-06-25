@@ -532,6 +532,37 @@ import QRCode from 'qrcode';
 
   // ── State ───────────────────────────────────────────────────────────────
 
+  // Debug/preview override for "now": reads a `cosamNow` query param holding
+  // either epoch-seconds or any Date-parseable string, and returns the matching
+  // epoch-milliseconds (to mirror Date.now()). Returns null when absent/invalid.
+  function parseCosamNowParam() {
+    try {
+      const raw = new URLSearchParams(window.location.search).get('cosamNow');
+      if (!raw) return null;
+      if (/^\d+$/.test(raw)) return Number(raw) * 1000;
+      const ms = Date.parse(raw);
+      return isNaN(ms) ? null : ms;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Stamp an element with a panel's epoch span + grid-slot name, used by the
+  // live current-panel highlight (_applyCurrentHighlight) and the kiosk's
+  // auto-scroll to locate the active row. No-ops for panels lacking epochs.
+  function stampEpochDataset(node, evt) {
+    if (typeof evt.startEpoch === 'number') {
+      node.dataset.startEpoch = String(evt.startEpoch);
+      node.dataset.slot = slotEpochToName(epochToSlotEpoch(evt.startEpoch));
+    }
+    if (typeof evt.endEpoch === 'number') {
+      node.dataset.endEpoch = String(evt.endEpoch);
+    }
+    if (evt.id !== undefined && evt.id !== null) {
+      node.dataset.panelId = String(evt.id);
+    }
+  }
+
   class CalendarState {
     constructor() {
       this.view = 'list'; // 'list' or 'grid'
@@ -572,6 +603,12 @@ import QRCode from 'qrcode';
       this._hasRestoredState = false;
       this._savedView = null; // Saved view state before forced list mode
       this._renderCallback = null;
+      // Registered plugins (print, kiosk, …). All receive the unified host object
+      // from CalendarRenderer._pluginHost() in attach() and every hook.
+      this._plugins = [];
+      // Optional "now" source for the live current-panel highlight; defaults to
+      // Date.now(). Set via init({ nowProvider }) or a `?cosamNow=` debug hook.
+      this.nowProvider = null;
       this._loadState();
       this._syncStarred();
       this._loadFromHash();
@@ -1080,6 +1117,10 @@ import QRCode from 'qrcode';
 
       // Apply color bar styles after rendering
       this._updateColorBarStyles();
+
+      // Live "currently running" highlight (grid + list); refreshes on a timer.
+      this._applyCurrentHighlight();
+      this._ensureCurrentHighlightTimer();
 
       // Auto-open the detail sheet for a shared single panel (one-shot).
       if (this.state.pendingPanelId) {
@@ -1768,7 +1809,8 @@ import QRCode from 'qrcode';
       right.appendChild(shareBtn);
 
       // Print
-      const suppressPrintButton = this.state._printPlugin && this.state._printPlugin.suppressPrintButton === true;
+      const printPlugin = this._printPlugin();
+      const suppressPrintButton = printPlugin && printPlugin.suppressPrintButton === true;
 
       if (!suppressPrintButton) {
         // Show built-in print dropdown (unless plugin suppresses it)
@@ -1800,8 +1842,8 @@ import QRCode from 'qrcode';
 
         // Build print menu (allow plugin to customize)
         let printMenu = this._buildPrintMenu();
-        if (this.state._printPlugin && typeof this.state._printPlugin.buildPrintMenu === 'function') {
-          const customMenu = this.state._printPlugin.buildPrintMenu(printMenu, this._printPluginCtx());
+        if (printPlugin && typeof printPlugin.buildPrintMenu === 'function') {
+          const customMenu = printPlugin.buildPrintMenu(printMenu, this._pluginHost());
           if (customMenu) printMenu = customMenu;
         }
 
@@ -1825,9 +1867,11 @@ import QRCode from 'qrcode';
         right.appendChild(printGroup);
       }
 
-      // Allow plugin to add additional toolbar items
-      if (this.state._printPlugin && typeof this.state._printPlugin.extendToolbar === 'function') {
-        this.state._printPlugin.extendToolbar(right, this._printPluginCtx());
+      // Allow plugins to add additional toolbar items.
+      for (const plugin of this.state._plugins) {
+        if (plugin && typeof plugin.extendToolbar === 'function') {
+          plugin.extendToolbar(right, this._pluginHost());
+        }
       }
 
       // Help
@@ -2228,6 +2272,8 @@ import QRCode from 'qrcode';
       const card = el('div', {
         className: printPrefix + 'event-card' + (isStarred ? ' starred' : '') + (isShared ? ' ' + printPrefix + 'shared' : ''),
       });
+      // Epoch span for the live current-panel highlight (list view).
+      stampEpochDataset(card, evt);
 
       // Color bar
       if (typeClass) {
@@ -2593,6 +2639,10 @@ import QRCode from 'qrcode';
             gridRow: timeSlot,
           }
         });
+        // Slot name so the kiosk can scroll the active row into view and stamp
+        // the slot's epoch for the current-time row highlight.
+        timeHeader.dataset.slot = timeSlot;
+        timeHeader.dataset.slotEpoch = String(slotEpoch);
 
         // Use split time format for accessibility and aligned display.
         // startTime is the schedule-timezone wall-clock ISO string (set by
@@ -2866,6 +2916,9 @@ import QRCode from 'qrcode';
         tabindex: '0',
         onClick: () => { this.state.modalEvent = evt; this._showModal(evt); },
       });
+      // Stamp epoch span + slot so the live current-panel highlight and the
+      // kiosk auto-scroll can locate this cell without re-deriving from data.
+      stampEpochDataset(div, evt);
       div.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -3669,14 +3722,17 @@ import QRCode from 'qrcode';
       if (layer) this.root.appendChild(layer);
     }
 
-    // ── Print ──
+    // ── Plugins ──
 
     /**
-     * Context handed to a print plugin's hooks (print / extendToolbar / attach).
-     * Exposes the data and renderer helpers a plugin needs to take over print
-     * rendering and contribute toolbar UI.
+     * The single canonical host object handed to every plugin hook (attach /
+     * extendToolbar / buildPrintMenu / print). Supersedes the old
+     * `_printPluginCtx()`: it exposes the same data/renderer keys plus `helpers`
+     * (module-scope pure functions a plugin in a separate file can't otherwise
+     * reach), a `nowEpoch()` clock source, and `refreshCurrent()` so a plugin can
+     * re-evaluate the live current-panel highlight.
      */
-    _printPluginCtx() {
+    _pluginHost() {
       return {
         renderer: this,
         state: this.state,
@@ -3686,16 +3742,99 @@ import QRCode from 'qrcode';
         ICONS: ICONS,
         el: el,
         mountOverlay: (element) => this.mountOverlay(element),
+        nowEpoch: () => this._currentNowEpoch(),
+        refreshCurrent: () => this._applyCurrentHighlight(),
+        helpers: {
+          epochToLocalIso,
+          epochToSlotEpoch,
+          slotEpochToName,
+          formatTimeSplit,
+          formatDuration,
+          pastelTint: _pastelTint,
+        },
       };
     }
+
+    /** Back-compat alias — earlier code called `_printPluginCtx()`. */
+    _printPluginCtx() {
+      return this._pluginHost();
+    }
+
+    /** First registered plugin that can take over printing, or null. */
+    _printPlugin() {
+      return this.state._plugins.find(p => p && typeof p.print === 'function') || null;
+    }
+
+    // ── Live current-panel highlight ──
+
+    /**
+     * Current wall-clock as epoch seconds. Panel `startEpoch`/`endEpoch` are
+     * absolute, so a raw epoch compares correctly regardless of the viewer's
+     * machine timezone. A `nowProvider` (testing/kiosk preview) overrides the
+     * real clock.
+     */
+    _currentNowEpoch() {
+      const ms = this.state.nowProvider ? this.state.nowProvider() : Date.now();
+      return Math.floor(ms / 1000);
+    }
+
+    /**
+     * Toggle `.cosam-current` on every rendered event element whose
+     * `[startEpoch, endEpoch)` window brackets "now". Cheap DOM-only pass (no
+     * re-render); safe to call on a timer and from plugins via the host's
+     * `refreshCurrent()`.
+     */
+    _applyCurrentHighlight() {
+      const now = this._currentNowEpoch();
+      // Theme-pinned OKLCh lightness/chroma for the running-panel tint; the hue
+      // comes from each panel's own type color (see below).
+      const cs = window.getComputedStyle(this.root);
+      const tintL = parseFloat(cs.getPropertyValue('--cosam-current-l')) || 0.92;
+      const tintC = parseFloat(cs.getPropertyValue('--cosam-current-c')) || 0.1;
+      const colors = this._panelTypeColors;
+      const nodes = this.root.querySelectorAll('[data-start-epoch][data-end-epoch]');
+      for (const node of nodes) {
+        const start = Number(node.dataset.startEpoch);
+        const end = Number(node.dataset.endEpoch);
+        const isCurrent = isFinite(start) && isFinite(end) && now >= start && now < end;
+        node.classList.toggle('cosam-current', isCurrent);
+        // Tint a running panel's background with its own type hue at the theme's
+        // lightness/chroma so it reads as "now" while keeping the category color.
+        // Falls back (empty inline) to the CSS accent tint when the type color is
+        // unknown (e.g. list cards, which carry the color on a child bar).
+        let tint = '';
+        if (isCurrent && colors) {
+          let slug = null;
+          for (const cls of node.classList) {
+            const m = cls.match(/^cosam-panel-type-(.+)$/);
+            if (m) { slug = m[1]; break; }
+          }
+          const color = slug && colors.get(slug);
+          if (color) tint = _pastelTint(color, tintL, tintC);
+        }
+        node.style.background = tint;
+      }
+    }
+
+    /**
+     * Start the shared ticker that refreshes the current-panel highlight. One
+     * interval per renderer; highlights only change on minute boundaries so a
+     * 30s cadence is responsive without churn.
+     */
+    _ensureCurrentHighlightTimer() {
+      if (this._currentTimer) return;
+      this._currentTimer = setInterval(() => this._applyCurrentHighlight(), 30000);
+    }
+
+    // ── Print ──
 
     _handlePrint() {
       // Delegate the print action to a registered plugin (advanced format
       // system, Typst PDF, …) when present; otherwise run the built-in simple
       // print below.
-      const plugin = this.state._printPlugin;
+      const plugin = this._printPlugin();
       if (plugin && typeof plugin.print === 'function') {
-        plugin.print(this._printPluginCtx());
+        plugin.print(this._pluginHost());
         return;
       }
 
@@ -3951,6 +4090,15 @@ ${allCSS}
         },
       ];
 
+      // Let plugins contribute their own help sections (same {heading, items}
+      // shape: each item is { icon, text }). Keeps plugin docs next to core docs.
+      for (const plugin of this.state._plugins) {
+        if (plugin && typeof plugin.helpSections === 'function') {
+          const extra = plugin.helpSections(this._pluginHost());
+          if (Array.isArray(extra)) helpData.push(...extra);
+        }
+      }
+
       const sections = el('div', { className: 'cosam-help-sections' });
 
       for (const section of helpData) {
@@ -3985,11 +4133,13 @@ ${allCSS}
     const data = renderer._normalizeDataModel(rawData);
     state.data = data;
 
-    // Call plugin attach after data is loaded so it can access printFormats
-    // Only call if not already attached (check for a flag)
-    if (state._printPlugin && typeof state._printPlugin.attach === 'function' && !state._printPlugin._attached) {
-      state._printPlugin.attach({ renderer, state, ICONS, mountOverlay: (element) => renderer.mountOverlay(element) });
-      state._printPlugin._attached = true;
+    // Call plugin attach after data is loaded so it can access printFormats.
+    // Each plugin attaches once and receives the unified host object.
+    for (const plugin of state._plugins) {
+      if (plugin && typeof plugin.attach === 'function' && !plugin._attached) {
+        plugin.attach(renderer._pluginHost());
+        plugin._attached = true;
+      }
     }
 
     // Build state.days from precomputed dayTimeline when available (FEATURE-154).
@@ -4085,14 +4235,34 @@ ${allCSS}
       }
       const renderer = new CalendarRenderer(rootEl, state);
 
-      // Optional print plugin. When registered, it owns the print action (and may
-      // contribute toolbar UI); without one, core runs its built-in simple print.
-      // This generalizes the Typst branch's `pdfExportHook`. Pass `null`/`false`
-      // to force the simple print explicitly.
-      if (opts.printPlugin) {
-        state._printPlugin = opts.printPlugin;
-        // Don't call attach yet - wait until data is loaded so state.data.printFormats is available
+      // Register plugins. All receive the unified host object in attach() and
+      // every hook. `printPlugin` is kept for back-compat (it becomes one entry
+      // in the list); `plugins` accepts any number (kiosk, print, …) and
+      // `window.CosAmCalendarPlugins` collects self-registering plugin scripts.
+      // attach() is deferred until data is loaded so plugins see printFormats.
+      const registerPlugin = (p) => {
+        if (p && state._plugins.indexOf(p) === -1) state._plugins.push(p);
+      };
+      if (opts.printPlugin) registerPlugin(opts.printPlugin);
+      if (Array.isArray(opts.plugins)) opts.plugins.forEach(registerPlugin);
+      if (Array.isArray(window.CosAmCalendarPlugins)) {
+        window.CosAmCalendarPlugins.forEach(registerPlugin);
       }
+
+      // Optional "now" source for the live current-panel highlight (testing /
+      // kiosk previews). A `?cosamNow=<ISO or epoch-seconds>` query param freezes
+      // "now" without code; an explicit nowProvider function takes precedence.
+      if (typeof opts.nowProvider === 'function') {
+        state.nowProvider = opts.nowProvider;
+      } else {
+        const frozen = parseCosamNowParam();
+        if (frozen !== null) state.nowProvider = () => frozen;
+      }
+      // `?cosamTheme=<name>` forces a theme (testing, or a fixed kiosk display).
+      try {
+        const t = new URLSearchParams(window.location.search).get('cosamTheme');
+        if (t) state.setTheme(t);
+      } catch (e) { /* ignore */ }
 
       // Keep the sticky offset in sync with viewport changes.
       if (state.stickyOffset || state.stickyOffsetSelector) {

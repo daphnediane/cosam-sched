@@ -122,6 +122,7 @@ main() {
         --title "Cosplay America ${YEAR} Schedule" \
         --public \
         --embed-as-html \
+        --plugin kiosk \
         --output "${generated_dir}/cos${YEAR}.xlsx" \
         --export-xlsx-grid "${generated_dir}/cos${YEAR}grid.xlsx" \
         --export-embed "${generated_dir}/embed.html" \
