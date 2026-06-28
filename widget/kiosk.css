@@ -29,10 +29,15 @@ html.cosam-kiosk-active .Mobile-bar--top {
   display: none;
   position: fixed;
   inset: 0;
-  z-index: 9000; /* below the shared modal (10000) so panel details show on top */
+  z-index: 9000;
+  /* below the shared modal (10000) so panel details show on top */
   background: var(--cosam-bg, #fff);
   color: var(--cosam-text, #1f2937);
-  grid-template-rows: auto minmax(0, 1.1fr) minmax(0, 1fr);
+  /* Rows: banner, top (grid), splitter, bottom (detail). The two pane heights
+     are driven by --cosam-kiosk-top / --cosam-kiosk-bottom (fr values) so the
+     splitter can resize them and the max/min buttons can collapse one to 0fr. */
+  grid-template-rows:
+    auto minmax(0, var(--cosam-kiosk-top, 1fr)) auto minmax(0, var(--cosam-kiosk-bottom, 1fr));
   font-family: var(--cosam-font, system-ui, sans-serif);
 }
 
@@ -195,7 +200,8 @@ html.cosam-kiosk-active .Mobile-bar--top {
   /* A clear accent wash over the grid background so the active hour reads all
      the way across the window — stronger than the pale --cosam-accent-bg. */
   background: color-mix(in oklab, var(--cosam-accent, #6b21a8) 18%, var(--cosam-grid-bg, #f5f5f5));
-  z-index: 1; /* above grid bg, below row/col lines and panels */
+  z-index: 1;
+  /* above grid bg, below row/col lines and panels */
 }
 
 .cosam-kiosk-grid-scroll .cosam-grid-time-header.cosam-kiosk-now:not(.cosam-grid-header-cell) {
@@ -203,6 +209,68 @@ html.cosam-kiosk-active .Mobile-bar--top {
   color: var(--cosam-accent, #6b21a8);
   font-weight: 700;
   box-shadow: inset 3px 0 0 var(--cosam-accent, #6b21a8);
+}
+
+/* ── Resizable splitter between the grid and detail panes ───────────────────
+   Drag to change the split, double-click to reset to 50/50, or use the ▲ / ▼
+   buttons to maximize one pane (collapsing the other to 0fr) and back. */
+.cosam-kiosk-splitter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  background: var(--cosam-grid-header-bg, #2a9ec7);
+  border-top: 1px solid color-mix(in oklab, var(--cosam-accent, #6b21a8) 35%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--cosam-accent, #6b21a8) 35%, transparent);
+  cursor: row-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.cosam-kiosk-split-grip {
+  width: 48px;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--cosam-grid-header-text, #fff) 70%, transparent);
+  pointer-events: none;
+}
+
+.cosam-kiosk-split-btns {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 4px;
+}
+
+.cosam-kiosk-split-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 12px;
+  font-size: 8px;
+  line-height: 1;
+  color: var(--cosam-grid-header-text, #fff);
+  background: transparent;
+  border: 1px solid color-mix(in oklab, currentColor 35%, transparent);
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.cosam-kiosk-split-btn:hover,
+.cosam-kiosk-split-btn:focus-visible {
+  border-color: var(--cosam-accent, #6b21a8);
+  background: color-mix(in oklab, var(--cosam-accent, #6b21a8) 30%, transparent);
+  outline: none;
+}
+
+.cosam-kiosk-split-btn[aria-pressed="true"] {
+  background: var(--cosam-accent, #6b21a8);
+  border-color: var(--cosam-accent, #6b21a8);
 }
 
 /* ── Bottom pane: per-room current / upcoming ───────────────────────────── */
@@ -217,7 +285,8 @@ html.cosam-kiosk-active .Mobile-bar--top {
 }
 
 .cosam-kiosk-detail-grid {
-  flex: 1; /* stretch the room rows to fill the pane's available height */
+  flex: 1;
+  /* stretch the room rows to fill the pane's available height */
   display: grid;
   grid-template-columns: minmax(96px, 0.7fr) 2fr 2fr;
   /* Header row sizes to content; room rows share the remaining height evenly,
@@ -225,7 +294,8 @@ html.cosam-kiosk-active .Mobile-bar--top {
   grid-template-rows: auto;
   grid-auto-rows: minmax(min-content, 1fr);
   gap: 1px;
-  background: var(--cosam-border, #e5e7eb); /* shows through the 1px gaps */
+  background: var(--cosam-border, #e5e7eb);
+  /* shows through the 1px gaps */
   align-items: stretch;
 }
 
@@ -354,7 +424,8 @@ html.cosam-kiosk-active .Mobile-bar--top {
 }
 
 .cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-grid-scroll,
-.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-detail {
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-detail,
+.cosam-kiosk.cosam-kiosk-narrow .cosam-kiosk-splitter {
   display: none;
 }
 

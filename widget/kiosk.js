@@ -95,6 +95,17 @@
       this._savedNowProvider = undefined;
       this._previewBtn = null;
       this._previewInput = null;
+      // Pane split: the draggable separator between the grid (top) and the
+      // now/upcoming detail pane (bottom). `_splitFraction` is the top pane's
+      // share (0..1) in the normal "split" state; `_paneState` is one of
+      // 'split' | 'top-max' | 'bottom-max' for the maximize/minimize buttons.
+      this._splitter = null;
+      this._splitFraction = 0.5;
+      this._paneState = 'split';
+      this._topMaxBtn = null;
+      this._botMaxBtn = null;
+      this._dragMove = null;
+      this._dragUp = null;
     }
 
     // ── Plugin contract ───────────────────────────────────────────────────────
@@ -134,6 +145,7 @@
           { icon: I.x, text: '<strong>Exit</strong> — Press <em>Esc</em> or click the × in the top-right to leave the kiosk.' },
           { icon: I.clock, text: '<strong>Auto-scroll</strong> — The grid follows the current time. Scroll or tap to browse; it resumes after 2 minutes, or immediately if you click the clock.' },
           { icon: I.calendar, text: '<strong>Preview another time</strong> — Click 🔮 to rehearse any moment: pick a time or tap a slot in the time column; click 🔮 again to return to now.' },
+          { icon: I.grid, text: '<strong>Resize the panes</strong> — Drag the bar between the grid and the now / upcoming list to change the split. Double-click it to reset to 50/50, or use the ▲ / ▼ buttons (▲ maximizes now / upcoming, ▼ maximizes the grid) and press again to toggle back.' },
           { icon: I.list, text: '<strong>Details</strong> — Click any panel (in the grid or the bottom list) to open its full details. On phones the grid is replaced by a condensed per-room list, with ★ marking panels in your schedule.' },
         ],
       }];
@@ -216,6 +228,9 @@
       });
       this.shell.appendChild(this._gridScroll);
 
+      // Splitter between the grid (top) and detail (bottom) panes.
+      this.shell.appendChild(this._buildSplitter());
+
       // Bottom pane: per-room current/upcoming (filled on enter).
       this._detailPane = el('div', {
         className: 'cosam-kiosk-detail',
@@ -223,6 +238,9 @@
         'aria-label': 'Current and upcoming panels by room',
       });
       this.shell.appendChild(this._detailPane);
+
+      // Set the initial split (50/50) on the shell's CSS custom properties.
+      this._applySplit();
 
       // Mobile pane: condensed per-room current/upcoming titles. Shown instead
       // of the grid + detail panes at phone widths (CSS-toggled via the shell's
@@ -255,6 +273,120 @@
         wrap.appendChild(el('div', { className: 'cosam-kiosk-title' }, title));
       }
       return wrap;
+    }
+
+    // ── Resizable splitter ────────────────────────────────────────────────────
+
+    // The bar between the grid and detail panes: drag to resize, double-click to
+    // reset to 50/50, and the ▲ / ▼ buttons maximize one pane (collapsing the
+    // other) and toggle back.
+    _buildSplitter() {
+      const bar = el('div', {
+        className: 'cosam-kiosk-splitter',
+        role: 'separator',
+        'aria-orientation': 'horizontal',
+        'aria-label': 'Resize panes — drag, or double-click to reset to 50%',
+        title: 'Drag to resize · double-click to reset to 50%',
+      });
+      bar.appendChild(el('div', { className: 'cosam-kiosk-split-grip', 'aria-hidden': 'true' }));
+
+      const btns = el('div', { className: 'cosam-kiosk-split-btns' });
+      // Up arrow moves the bar to the top, maximizing the bottom pane; the down
+      // arrow does the opposite. `aria-pressed` reflects which pane is maxed.
+      this._botMaxBtn = el('button', {
+        type: 'button',
+        className: 'cosam-kiosk-split-btn cosam-kiosk-split-up',
+        title: 'Move the bar up — maximize now / upcoming (hide grid)',
+        'aria-label': 'Maximize now and upcoming list',
+        'aria-pressed': 'false',
+        innerHTML: '&#9650;', // ▲
+        onClick: () => this._setPaneState('bottom-max'),
+      });
+      this._topMaxBtn = el('button', {
+        type: 'button',
+        className: 'cosam-kiosk-split-btn cosam-kiosk-split-down',
+        title: 'Move the bar down — maximize the grid (hide now / upcoming)',
+        'aria-label': 'Maximize schedule grid',
+        'aria-pressed': 'false',
+        innerHTML: '&#9660;', // ▼
+        onClick: () => this._setPaneState('top-max'),
+      });
+      btns.appendChild(this._botMaxBtn);
+      btns.appendChild(this._topMaxBtn);
+      bar.appendChild(btns);
+
+      // A button press must not start a resize drag.
+      btns.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+      bar.addEventListener('pointerdown', (e) => this._startSplitDrag(e));
+      bar.addEventListener('dblclick', () => this._resetSplit());
+
+      this._splitter = bar;
+      return bar;
+    }
+
+    // Push the current split state to the shell's CSS custom properties and sync
+    // the maximize buttons' pressed state.
+    _applySplit() {
+      let top, bottom;
+      if (this._paneState === 'top-max') { top = 1; bottom = 0; }
+      else if (this._paneState === 'bottom-max') { top = 0; bottom = 1; }
+      else { top = this._splitFraction; bottom = 1 - this._splitFraction; }
+      if (this.shell) {
+        this.shell.style.setProperty('--cosam-kiosk-top', top + 'fr');
+        this.shell.style.setProperty('--cosam-kiosk-bottom', bottom + 'fr');
+      }
+      if (this._topMaxBtn) this._topMaxBtn.setAttribute('aria-pressed', String(this._paneState === 'top-max'));
+      if (this._botMaxBtn) this._botMaxBtn.setAttribute('aria-pressed', String(this._paneState === 'bottom-max'));
+    }
+
+    // Toggle a maximize button: a second press on the active one returns to split.
+    _setPaneState(target) {
+      this._paneState = (this._paneState === target) ? 'split' : target;
+      this._applySplit();
+    }
+
+    _resetSplit() {
+      this._splitFraction = 0.5;
+      this._paneState = 'split';
+      this._applySplit();
+    }
+
+    _startSplitDrag(e) {
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault();
+      // A drag always lands in the normal split state; restore both panes first
+      // so the geometry we measure reflects two visible panes (not a collapsed
+      // one). Reading getBoundingClientRect below forces the layout to update.
+      this._paneState = 'split';
+      this._applySplit();
+
+      const splitterH = this._splitter.offsetHeight;
+      const top0 = this._gridScroll.getBoundingClientRect().top;
+      const bottom0 = this._detailPane.getBoundingClientRect().bottom;
+      const avail = bottom0 - top0 - splitterH;
+      if (avail <= 0) return;
+
+      try { this._splitter.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+      document.body.style.cursor = 'row-resize';
+
+      this._dragMove = (ev) => {
+        let f = (ev.clientY - top0) / avail;
+        f = Math.max(0.08, Math.min(0.92, f));
+        this._splitFraction = f;
+        this._applySplit();
+      };
+      this._dragUp = (ev) => {
+        this._splitter.removeEventListener('pointermove', this._dragMove);
+        this._splitter.removeEventListener('pointerup', this._dragUp);
+        this._splitter.removeEventListener('pointercancel', this._dragUp);
+        try { this._splitter.releasePointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
+        document.body.style.cursor = '';
+        this._dragMove = this._dragUp = null;
+      };
+      this._splitter.addEventListener('pointermove', this._dragMove);
+      this._splitter.addEventListener('pointerup', this._dragUp);
+      this._splitter.addEventListener('pointercancel', this._dragUp);
     }
 
     // ── Enter / exit ──────────────────────────────────────────────────────────
